@@ -43,7 +43,7 @@ const analysis={description:"模型的视觉描述",tags:[{dimension:"age",name:
 for(const protocol of ["openai","responses","anthropic","gemini"]){
 assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,protocol})})).status,200);
 globalThis.fetch=async(url,options)=>{
-const b=JSON.parse(options.body);assert.equal(options.redirect,"error");if(protocol!=="gemini")assert.equal(b.model,"vision-test");
+const b=JSON.parse(options.body);if(options.redirect==="error")throw new TypeError("Invalid redirect value, must be one of follow or manual");assert.equal(options.redirect,"manual");if(protocol!=="gemini")assert.equal(b.model,"vision-test");
 if(protocol==="openai"){assert(url.endsWith("/chat/completions"));assert.equal(options.headers.Authorization,"Bearer "+configBody.apiKey);assert(b.messages[0].content[1].image_url.url.startsWith("data:image/jpeg;base64,"));return Response.json({choices:[{message:{content:JSON.stringify(analysis)}}]})}
 if(protocol==="responses"){assert(url.endsWith("/responses"));assert.equal(b.store,false);assert(b.input[0].content[1].image_url);return Response.json({output:[{content:[{type:"output_text",text:JSON.stringify(analysis)}]}]})}
 if(protocol==="anthropic"){assert(url.endsWith("/messages"));assert.equal(options.headers["x-api-key"],configBody.apiKey);assert(b.messages[0].content[0].source.data);return Response.json({content:[{type:"text",text:JSON.stringify(analysis)}]})}
@@ -52,6 +52,8 @@ assert(url.endsWith("/models/vision-test:generateContent"));assert.equal(options
 const ar=await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"});assert.equal(ar.status,200,await ar.clone().text());const out=await ar.json();
 assert(out.role.tags.some(t=>t.name==="民国"));assert(out.role.tags.some(t=>t.name==="中世纪"));assert(out.role.tags.some(t=>t.name==="星港童话"));assert(!out.role.tags.some(t=>t.name==="薄雾玻璃"));
 }
+let redirectCalls=0;globalThis.fetch=async(url,options)=>{redirectCalls++;assert.equal(options.redirect,"manual");return new Response("",{status:302,headers:{Location:"https://other.vendor.com/stolen"}})};
+const redirected=await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"});assert.equal(redirected.status,502);assert((await redirected.json()).error.includes("重定向"));assert.equal(redirectCalls,1);
 globalThis.fetch=async()=>new Response("Unauthorized",{status:401});
 let failed=await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"});assert.equal(failed.status,502);assert(!(await failed.text()).includes(configBody.apiKey));
 assert.equal((await call(role.downloadUrl)).status,200);
@@ -80,5 +82,5 @@ assert.equal(run("taxonomy.length"),10);
 run('state.filters={age:"儿童",era:"民国"};update()');assert.equal(run("matchRoles().length"),1);
 run('detail(roles.find(r=>!r.sample).id)');assert(el("#detail-content").innerHTML.includes("下载原图"));assert(el("#detail-content").innerHTML.includes("儿童"));
 el('#edit-dimension').value='style';run('editor()');assert(el("#edit-dialog").open);
-console.log("PASS: upload, exact original download, persistent labels, deduplication, revision conflict, auth, origin, encrypted configuration, four vision protocols, provider failures, concurrent edits, 10 dimensions, combined filters, details, editor.");
+console.log("PASS: upload, exact original download, persistent labels, deduplication, revision conflict, auth, origin, encrypted configuration, four vision protocols, edge redirect compatibility, redirect rejection, provider failures, concurrent edits, 10 dimensions, combined filters, details, editor.");
 sql.close();

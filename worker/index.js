@@ -73,7 +73,8 @@ if(protocol==="anthropic"){url=base+"/messages";headers["x-api-key"]=key;headers
 else if(protocol==="gemini"){url=base+"/models/"+encodeURIComponent(model)+":generateContent";headers["x-goog-api-key"]=key;body={contents:[{role:"user",parts:[{inline_data:{mime_type:"image/jpeg",data:image}},{text:prompt}]}],generationConfig:{responseMimeType:"application/json",maxOutputTokens:3000}}}
 else if(protocol==="responses"){url=base+"/responses";headers.Authorization="Bearer "+key;body={model,store:false,max_output_tokens:2400,input:[{role:"user",content:[{type:"input_text",text:prompt},{type:"input_image",image_url:"data:image/jpeg;base64,"+image}]}]}}
 else {url=base+"/chat/completions";headers.Authorization="Bearer "+key;body={model,messages:[{role:"user",content:[{type:"text",text:prompt},{type:"image_url",image_url:{url:"data:image/jpeg;base64,"+image}}]}]}}
-let response;try{response=await fetch(url,{method:"POST",headers,body:JSON.stringify(body),redirect:"error",signal:AbortSignal.timeout(60000)})}catch{throw new HttpError(502,"模型连接失败或超时，请检查服务地址")}
+let response;try{response=await fetch(url,{method:"POST",headers,body:JSON.stringify(body),redirect:"manual",signal:AbortSignal.timeout(60000)})}catch(e){const reason=["AbortError","TimeoutError"].includes(e.name)?"timeout":"network";console.error("vision_connection_failed",JSON.stringify({protocol:config.protocol,reason}));throw new HttpError(502,reason==="timeout"?"模型连接超时，请稍后重试":"模型连接失败，请检查服务地址或服务端网络")}
+if(response.status>=300&&response.status<400)throw new HttpError(502,"模型接口返回重定向，请填写直接可用的 API 基础地址");
 if(!response.ok)throw new HttpError(response.status===429?429:502,response.status===401||response.status===403?"模型服务拒绝授权，请检查 API 密钥及模型权限":response.status===429?"模型服务额度不足或请求过多，请稍后重试":"模型服务返回错误（"+response.status+"），请检查模型是否支持图片");
 const data=await response.json();let output;
 if(protocol==="anthropic")output=(data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("");
