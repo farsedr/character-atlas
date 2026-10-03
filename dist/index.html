@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>角色图谱 · AI角色分类项目库</title><meta name="description" content="浏览、搜索和筛选 AI 角色的视觉风格、题材、形态与材质，建立可扩展的角色项目库。">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff8a5c'/%3E%3Cpath d='M9 23V9h6v6h8v8z' fill='%23111419'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css"><script src="data.js" defer></script><script src="app.js" defer></script></head>
+<body>
+<a class="skip" href="#main">跳到内容</a>
+<aside class="sidebar"><a href="#" class="brand" aria-label="角色图谱首页"><span class="mark">图</span><span>角色图谱<small>CHARACTER ATLAS</small></span></a>
+<div class="workspace-label">个人工作空间 <span>V0.1</span></div>
+<nav aria-label="主导航"><button class="nav-item active" data-view="library"><span>▦</span>角色库<b>06</b></button><button class="nav-item" data-view="taxonomy"><span>⊞</span>分类字典<b>104</b></button><button class="nav-item" data-view="projects"><span>▤</span>项目分组<b>03</b></button></nav>
+<div class="side-caption">按画风浏览</div><div id="style-nav"></div>
+<div class="sidebar-bottom"><span class="sample-tag">示例工作空间</span><p>先建立清晰的分类，<br>再沉淀自己的角色资产。</p><small>创建于 2026.10.03</small></div></aside>
+<div class="page"><header class="topbar"><div>工作空间 <span>/</span> <strong id="breadcrumb">角色库</strong></div><span class="private-label">个人项目库</span></header>
+<main id="main">
+<div class="page-heading"><div><div class="eyebrow">YOUR CREATIVE ARCHIVE</div><h1 id="page-title">角色库<span> / 06</span></h1><p id="page-description">让每一个角色，都有清晰的位置。</p></div><div class="edition">LIBRARY<br><strong>001—006</strong></div></div>
+<section id="library-view" aria-label="角色库">
+<div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索名称、标签或角色特征…" aria-label="搜索角色"><kbd>/</kbd></label><label class="sort">排序<select id="sort" aria-label="角色排序"><option value="id">档案编号</option><option value="name">角色名称</option></select></label></div>
+<div class="filter-panel"><div class="filter-top"><span>组合筛选</span><button id="reset" class="text-button">清除筛选</button></div><div class="filter-grid" id="filters"></div></div>
+<div class="results-bar"><div id="result-count" role="status" aria-live="polite"></div><span>概念档案 · 全部为示例数据</span></div>
+<div id="active-filters"></div><div id="cards" class="cards"></div>
+<div id="empty" class="empty" hidden><span>∅</span><h2>没有找到匹配的角色</h2><p>试试减少筛选条件，或换一个关键词。</p><button id="empty-reset" class="secondary">清除所有筛选</button></div>
+</section>
+<section id="taxonomy-view" hidden aria-label="分类字典"><div class="taxonomy-intro"><strong>7 个独立维度 · 104 个分类词条</strong><p>画风、题材与材质分别记录，支持组合检索。点击词条查看对应角色；数字表示当前示例档案数量。</p></div><div id="taxonomy"></div></section>
+<section id="projects-view" hidden aria-label="项目分组"><div id="projects" class="project-grid"></div><div class="workflow"><div class="eyebrow">PROJECT STRUCTURE</div><h2>从概念到角色资产</h2><div class="steps"><span>01 · 需求定义</span><span>02 · 角色设定</span><span>03 · 参考与生成</span><span>04 · 审核归档</span></div><p>本版展示分类与概念档案。所有示例均处于概念草案阶段，正式素材与生成记录尚未录入。</p></div></section>
+<footer><span>CHARACTER ATLAS</span><span>分类版本 1.0 · 6 份概念草案</span></footer>
+</main></div>
+<dialog id="detail" aria-labelledby="detail-name"><div class="detail-shell"><button id="close-detail" class="close" aria-label="关闭角色详情">×</button><div id="detail-art" class="detail-art" role="img"></div><div class="detail-content" id="detail-content"></div></div></dialog>
+</body></html>
