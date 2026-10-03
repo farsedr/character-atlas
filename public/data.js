@@ -214,29 +214,9 @@ const ATLAS = {
       ]
     },
     {
-      "id": "use",
-      "name": "用途",
-      "description": "角色的应用场景",
-      "groups": [
-        {
-          "name": "应用",
-          "values": [
-            "品牌IP",
-            "动画",
-            "游戏",
-            "绘本",
-            "虚拟人",
-            "潮玩",
-            "表情包",
-            "广告"
-          ]
-        }
-      ]
-    },
-    {
       "id": "age",
-      "name": "年龄阶段",
-      "description": "角色外观表现的年龄阶段，包含独立的儿童标签",
+      "name": "年龄",
+      "description": "角色外观表现的年龄，包含独立的儿童标签",
       "groups": [
         {
           "name": "外观阶段",
@@ -299,571 +279,85 @@ const ATLAS = {
           ]
         }
       ]
-    }
-  ],
-  "roles": [
-    {
-      "id": "AST-CHAR-001",
-      "name": "绒绒",
-      "en": "RONGRONG",
-      "description": "一只认真收集好心情的毛绒兔子。",
-      "classification": {
-        "style": "毛绒玩偶",
-        "theme": "森林童话",
-        "form": "拟人动物",
-        "material": "毛绒",
-        "proportion": "大头短身",
-        "mood": "治愈",
-        "use": "品牌IP",
-        "age": "无法判断",
-        "era": "无法判断",
-        "gender": "无性别设定"
-      },
-      "projectId": "PRJ-001",
-      "tile": 0,
-      "invariants": [
-        "柔软垂耳",
-        "橙色围巾",
-        "奶白色绒毛"
-      ],
-      "notes": "面部保持简洁；围巾作为核心识别物，避免增加装饰。",
-      "missingViews": [
-        "正面",
-        "侧面",
-        "背面",
-        "表情组"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
-        {
-          "dimension": "style",
-          "name": "毛绒玩偶",
-          "source": "builtin"
-        },
-        {
-          "dimension": "theme",
-          "name": "森林童话",
-          "source": "builtin"
-        },
-        {
-          "dimension": "form",
-          "name": "拟人动物",
-          "source": "builtin"
-        },
-        {
-          "dimension": "material",
-          "name": "毛绒",
-          "source": "builtin"
-        },
-        {
-          "dimension": "proportion",
-          "name": "大头短身",
-          "source": "builtin"
-        },
-        {
-          "dimension": "mood",
-          "name": "治愈",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "品牌IP",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "无法判断",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "无法判断",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "无性别设定",
-          "source": "builtin"
-        }
-      ]
     },
     {
-      "id": "AST-CHAR-002",
-      "name": "青岚",
-      "en": "QINGLAN",
-      "description": "游历山川的年轻剑客，以青色长袍和沉静神态识别。",
-      "classification": {
-        "style": "数字厚涂",
-        "theme": "仙侠",
-        "form": "人类",
-        "material": "织物",
-        "proportion": "修长比例",
-        "mood": "冷峻",
-        "use": "游戏",
-        "age": "青年",
-        "era": "架空时代",
-        "gender": "女性"
-      },
-      "projectId": "PRJ-002",
-      "tile": 1,
-      "invariants": [
-        "青色长袍",
-        "黑色长发",
-        "简洁金属发饰"
-      ],
-      "notes": "保持服装层次和主色；兵器细节与动作设定待补充。",
-      "missingViews": [
-        "全身正面",
-        "侧面",
-        "背面",
-        "配饰细节"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
+      "id": "clothing",
+      "name": "服饰",
+      "description": "服装风格与款式",
+      "groups": [
         {
-          "dimension": "style",
-          "name": "数字厚涂",
-          "source": "builtin"
+          "name": "传统与国风",
+          "values": [
+            "旗袍",
+            "汉服",
+            "和服/浴衣",
+            "唐装",
+            "民族服饰"
+          ]
         },
         {
-          "dimension": "theme",
-          "name": "仙侠",
-          "source": "builtin"
+          "name": "制服与职业",
+          "values": [
+            "JK/DK制服（学生装）",
+            "职业套装/OL",
+            "护士服",
+            "教师装",
+            "军装/警服",
+            "女仆装",
+            "宇航服",
+            "空乘服",
+            "厨师服"
+          ]
         },
         {
-          "dimension": "form",
-          "name": "人类",
-          "source": "builtin"
+          "name": "亚文化与流行",
+          "values": [
+            "洛丽塔 (Lolita)",
+            "哥特 (Gothic)",
+            "机能风 (Techwear)",
+            "赛博朋克 (Cyberpunk)",
+            "蒸汽朋克 (Steampunk)",
+            "Y2K千禧风",
+            "废土风 (Wasteland)",
+            "街头风 (Streetwear)"
+          ]
         },
         {
-          "dimension": "material",
-          "name": "织物",
-          "source": "builtin"
+          "name": "幻想与二次元",
+          "values": [
+            "机甲/重甲",
+            "轻甲",
+            "法师长袍",
+            "精灵服饰",
+            "冒险者套装",
+            "魔法少女装",
+            "修仙/仙侠服饰"
+          ]
         },
         {
-          "dimension": "proportion",
-          "name": "修长比例",
-          "source": "builtin"
+          "name": "日常与特定场合",
+          "values": [
+            "日常休闲服",
+            "运动服",
+            "泳装/比基尼",
+            "睡衣/家居服",
+            "晚礼服",
+            "婚纱",
+            "西装"
+          ]
         },
         {
-          "dimension": "mood",
-          "name": "冷峻",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "游戏",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "青年",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "架空时代",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "女性",
-          "source": "builtin"
-        }
-      ]
-    },
-    {
-      "id": "AST-CHAR-003",
-      "name": "零号",
-      "en": "UNIT ZERO",
-      "description": "面向未来城市的仿生导航员，结构精密而克制。",
-      "classification": {
-        "style": "3D写实",
-        "theme": "太空科幻",
-        "form": "机器人",
-        "material": "金属",
-        "proportion": "真实比例",
-        "mood": "神秘",
-        "use": "虚拟人",
-        "age": "无法判断",
-        "era": "遥远未来",
-        "gender": "无性别设定"
-      },
-      "projectId": "PRJ-003",
-      "tile": 2,
-      "invariants": [
-        "银色装甲",
-        "青蓝发光部件",
-        "清晰机械分件"
-      ],
-      "notes": "固定头部外壳与肩部结构；发光区不替代真实的结构细节。",
-      "missingViews": [
-        "全身",
-        "关节结构",
-        "材质板",
-        "面部细节"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
-        {
-          "dimension": "style",
-          "name": "3D写实",
-          "source": "builtin"
-        },
-        {
-          "dimension": "theme",
-          "name": "太空科幻",
-          "source": "builtin"
-        },
-        {
-          "dimension": "form",
-          "name": "机器人",
-          "source": "builtin"
-        },
-        {
-          "dimension": "material",
-          "name": "金属",
-          "source": "builtin"
-        },
-        {
-          "dimension": "proportion",
-          "name": "真实比例",
-          "source": "builtin"
-        },
-        {
-          "dimension": "mood",
-          "name": "神秘",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "虚拟人",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "无法判断",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "遥远未来",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "无性别设定",
-          "source": "builtin"
-        }
-      ]
-    },
-    {
-      "id": "AST-CHAR-004",
-      "name": "赤尾",
-      "en": "RUST",
-      "description": "带着旅行装备探索未知森林的狐狸伙伴。",
-      "classification": {
-        "style": "3D卡通",
-        "theme": "森林童话",
-        "form": "拟人动物",
-        "material": "毛绒",
-        "proportion": "夸张体块",
-        "mood": "活泼",
-        "use": "动画",
-        "age": "无法判断",
-        "era": "无法判断",
-        "gender": "无性别设定"
-      },
-      "projectId": "PRJ-001",
-      "tile": 3,
-      "invariants": [
-        "橙色毛发",
-        "大耳朵",
-        "探险装束"
-      ],
-      "notes": "保持耳部轮廓；后续补充尾巴形态与全身比例设定。",
-      "missingViews": [
-        "全身",
-        "侧面",
-        "背面",
-        "动作组"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
-        {
-          "dimension": "style",
-          "name": "3D卡通",
-          "source": "builtin"
-        },
-        {
-          "dimension": "theme",
-          "name": "森林童话",
-          "source": "builtin"
-        },
-        {
-          "dimension": "form",
-          "name": "拟人动物",
-          "source": "builtin"
-        },
-        {
-          "dimension": "material",
-          "name": "毛绒",
-          "source": "builtin"
-        },
-        {
-          "dimension": "proportion",
-          "name": "夸张体块",
-          "source": "builtin"
-        },
-        {
-          "dimension": "mood",
-          "name": "活泼",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "动画",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "无法判断",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "无法判断",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "无性别设定",
-          "source": "builtin"
-        }
-      ]
-    },
-    {
-      "id": "AST-CHAR-005",
-      "name": "白露",
-      "en": "BAILU",
-      "description": "热爱飞行的年轻驾驶员，用亮橙色飞行夹克表达行动力。",
-      "classification": {
-        "style": "日系赛璐璐",
-        "theme": "太空科幻",
-        "form": "人类",
-        "material": "织物",
-        "proportion": "真实比例",
-        "mood": "勇敢",
-        "use": "动画",
-        "age": "青年",
-        "era": "遥远未来",
-        "gender": "女性"
-      },
-      "projectId": "PRJ-003",
-      "tile": 4,
-      "invariants": [
-        "白色短发",
-        "橙色飞行夹克",
-        "清晰眼部轮廓"
-      ],
-      "notes": "控制阴影色阶；固定发型轮廓和夹克色块位置。",
-      "missingViews": [
-        "全身",
-        "侧面",
-        "表情组",
-        "装备设定"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
-        {
-          "dimension": "style",
-          "name": "日系赛璐璐",
-          "source": "builtin"
-        },
-        {
-          "dimension": "theme",
-          "name": "太空科幻",
-          "source": "builtin"
-        },
-        {
-          "dimension": "form",
-          "name": "人类",
-          "source": "builtin"
-        },
-        {
-          "dimension": "material",
-          "name": "织物",
-          "source": "builtin"
-        },
-        {
-          "dimension": "proportion",
-          "name": "真实比例",
-          "source": "builtin"
-        },
-        {
-          "dimension": "mood",
-          "name": "勇敢",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "动画",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "青年",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "遥远未来",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "女性",
-          "source": "builtin"
-        }
-      ]
-    },
-    {
-      "id": "AST-CHAR-006",
-      "name": "苔老",
-      "en": "MOSSKEEPER",
-      "description": "一位守护林间小路的蘑菇长者。",
-      "classification": {
-        "style": "水彩",
-        "theme": "森林童话",
-        "form": "植物拟人",
-        "material": "纸张",
-        "proportion": "Q版",
-        "mood": "温柔",
-        "use": "绘本",
-        "age": "老年",
-        "era": "架空时代",
-        "gender": "男性"
-      },
-      "projectId": "PRJ-002",
-      "tile": 5,
-      "invariants": [
-        "蘑菇帽冠",
-        "苍老面部",
-        "苔绿色服饰"
-      ],
-      "notes": "保留纸张与水彩边缘；蘑菇帽轮廓作为身份特征。",
-      "missingViews": [
-        "全身",
-        "侧面",
-        "表情组",
-        "配色板"
-      ],
-      "version": "v001",
-      "status": "概念草案",
-      "sample": true,
-      "updated": "2026-10-03",
-      "referenceStatus": "AI示意图 · 待确认",
-      "generationRecords": [],
-      "tags": [
-        {
-          "dimension": "style",
-          "name": "水彩",
-          "source": "builtin"
-        },
-        {
-          "dimension": "theme",
-          "name": "森林童话",
-          "source": "builtin"
-        },
-        {
-          "dimension": "form",
-          "name": "植物拟人",
-          "source": "builtin"
-        },
-        {
-          "dimension": "material",
-          "name": "纸张",
-          "source": "builtin"
-        },
-        {
-          "dimension": "proportion",
-          "name": "Q版",
-          "source": "builtin"
-        },
-        {
-          "dimension": "mood",
-          "name": "温柔",
-          "source": "builtin"
-        },
-        {
-          "dimension": "use",
-          "name": "绘本",
-          "source": "builtin"
-        },
-        {
-          "dimension": "age",
-          "name": "老年",
-          "source": "builtin"
-        },
-        {
-          "dimension": "era",
-          "name": "架空时代",
-          "source": "builtin"
-        },
-        {
-          "dimension": "gender",
-          "name": "男性",
-          "source": "builtin"
+          "name": "特殊材质与款式",
+          "values": [
+            "紧身衣 (Bodysuit)",
+            "乳胶衣 (Latex)",
+            "网服/透视装",
+            "机车皮衣"
+          ]
         }
       ]
     }
   ],
-  "projects": [
-    {
-      "id": "PRJ-001",
-      "name": "森林伙伴计划",
-      "description": "探索毛绒与卡通角色的品牌表达。",
-      "color": "#d8874d",
-      "deliverables": "角色设定 · 品牌IP"
-    },
-    {
-      "id": "PRJ-002",
-      "name": "东方与自然叙事",
-      "description": "研究绘画媒介中的幻想人物与自然角色。",
-      "color": "#67b29c",
-      "deliverables": "角色原画 · 绘本概念"
-    },
-    {
-      "id": "PRJ-003",
-      "name": "未来航行档案",
-      "description": "比较写实机械与动漫人物的科幻视觉语言。",
-      "color": "#9892e2",
-      "deliverables": "数字角色 · 动画概念"
-    }
-  ]
+  "roles": [],
+  "projects": []
 };

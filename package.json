@@ -1,15 +1,22 @@
 {
-  "name": "character-atlas",
+  "name": "material-gallery",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test": "node scripts/smoke.mjs && node scripts/ui-smoke.mjs",
+    "preview": "node scripts/preview.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
-    "drizzle-kit": "0.31.10"
+    "drizzle-kit": "0.31.10",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.1"
+  },
+  "overrides": {
+    "esbuild": "$esbuild"
   }
 }
