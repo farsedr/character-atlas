@@ -12,7 +12,7 @@ const query=(env,sql,...values)=>getDb(env).prepare(sql).bind(...values);
 const publicId=n=>"CHAR-"+String(n).padStart(5,"0");
 const gapSQL="SELECT n FROM (SELECT 1 AS n UNION SELECT display_number+1 FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND display_number<99999) c WHERE NOT EXISTS(SELECT 1 FROM atlas_assets a WHERE a.owner_id=? AND a.deleted_at IS NULL AND a.display_number=c.n) ORDER BY n LIMIT 1";
 async function migrateLegacy(env){
- const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id IS NULL ORDER BY created_at,id").all();
+ const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id IS NULL ORDER BY created_at,id LIMIT 12").all();
  for(const row of rows.results){let body=JSON.parse(row.body);if(!body.width||!body.height){try{const original=await bucket(env).get(row.original_key);if(original)body={...body,...imageDimensions(new Uint8Array(await original.arrayBuffer()),row.mime)}}catch{}}await query(env,"UPDATE atlas_assets SET body=?,owner_id=?,display_number=("+gapSQL+") WHERE id=? AND owner_id IS NULL",JSON.stringify(body),LEGACY_OWNER,LEGACY_OWNER,LEGACY_OWNER,row.id).run()}
  await query(env,"UPDATE atlas_labels SET owner_id=? WHERE owner_id IS NULL",LEGACY_OWNER).run();
 }
@@ -30,7 +30,8 @@ async function canonicalTags(env,input,source="manual",owner){
  }
  return tags;
 }
-function labelStatements(env,tags,owner){return tags.map(t=>query(env,"INSERT OR IGNORE INTO atlas_labels (key,dimension,name,source,created_at,owner_id,group_name) VALUES (?,?,?,?,?,?,?)",owner+"|"+t.dimension+":"+normalize(t.name),t.dimension,t.name,t.source,new Date().toISOString(),owner,t.groupName||"新增标签"))}
+function labelStatements(env,tags,owner){const statements=[];for(let i=0;i<tags.length;i+=12){const group=tags.slice(i,i+12),values=group.flatMap(t=>[owner+"|"+t.dimension+":"+normalize(t.name),t.dimension,t.name,t.source,new Date().toISOString(),owner,t.groupName||"新增标签"]);statements.push(query(env,"INSERT OR IGNORE INTO atlas_labels (key,dimension,name,source,created_at,owner_id,group_name) VALUES "+group.map(()=>"(?,?,?,?,?,?,?)").join(","),...values))}return statements}
+async function persistLabels(env,tags,owner){const statements=labelStatements(env,tags,owner);if(statements.length)await getDb(env).batch(statements)}
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
  const id=publicId(row.display_number);
@@ -81,7 +82,7 @@ async function saveRole(env,row,input,owner){
  const tags=await canonicalTags(env,input.tags||[], "manual",owner),p=await project(env,owner,input.projectName||"未分组");
  const role={...JSON.parse(row.body),tags,classification:classify(tags),name:textValue(input.name,180),description:typeof input.description==="string"?input.description.slice(0,1200):"",generationPrompt:typeof input.generationPrompt==="string"?input.generationPrompt.slice(0,12000):"",projectName:p.name,projectId:p.id,namingMode:"custom"};
  const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
- if(!updated)throw new HttpError(409,"素材已变化，请刷新");await getDb(env).batch(labelStatements(env,tags,owner));return json({role:bodyRole(updated)});
+ if(!updated)throw new HttpError(409,"素材已变化，请刷新");await persistLabels(env,tags,owner);return json({role:bodyRole(updated)});
 }
 
 const protocolIds=["openai","responses","anthropic","gemini"];
@@ -144,7 +145,7 @@ async function analyze(env,row,owner){
   const role={...saved,tags:merged,description:saved.description||parsed.description.slice(0,1200),...(saved.namingMode==="ai"?{name:shortName}:{}),analysisStatus:"done",analysisResult:{acceptedCount:accepted.length,model:config.model,provider:config.provider,at:new Date().toISOString()}};
   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,claimed.revision).first();
   if(!updated)throw new HttpError(409,"分析期间素材已修改或删除，请刷新");
-  await getDb(env).batch(labelStatements(env,accepted,owner));return json({role:bodyRole(updated),acceptedCount:accepted.length});
+  await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
  }catch(e){
   await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL",JSON.stringify({...saved,analysisStatus:"failed"}),row.id,owner,claimed.revision).run();
   if(e instanceof HttpError)throw e;throw new HttpError(502,"分析失败，原图已保存");
@@ -162,16 +163,16 @@ async function handleApi(request,env,url){
  await migrateLegacy(env);
  if(url.pathname==="/api/library"&&request.method==="GET"){
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
-  return json({roles:rows.results.filter(r=>!r.deleted_at).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results,analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
+  const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,roles:rows.results.filter(r=>!r.deleted_at).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results,analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);
  if(url.pathname==="/api/assets"&&request.method==="POST")return upload(request,env,owner);
  if(url.pathname==="/api/projects"&&request.method==="POST"){const b=await request.json();return json({project:await project(env,owner,b.name)},201)}
  if(url.pathname==="/api/tags"&&request.method==="POST"){
-  const b=await request.json(),tags=await canonicalTags(env,[b],"manual",owner);await getDb(env).batch(labelStatements(env,tags,owner));return json({tag:tags[0]},201);
+  const b=await request.json(),tags=await canonicalTags(env,[b],"manual",owner);await persistLabels(env,tags,owner);return json({tag:tags[0]},201);
  }
  if(url.pathname==="/api/assets/delete"&&request.method==="POST"){
-  const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>200)throw new HttpError(400,"一次请选择1至200个素材");
+  const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25个素材");
   for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除请求无效");
   const result=await getDb(env).batch(b.items.map(i=>query(env,"UPDATE atlas_assets SET deleted_at=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL",new Date().toISOString(),i.identity,owner,i.revision)));
   const changed=result.reduce((n,r)=>n+(r.meta?.changes||0),0);return json({ok:true,deleted:changed});

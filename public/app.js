@@ -35,7 +35,7 @@ async function refresh(silent=false){
  if(!state.user)return;try{
  const r=await api("/api/library");Object.assign(state,{roles:r.roles,recycle:r.recycle,labels:r.labels,projects:r.projects,analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
  const valid=new Set(state.roles.map(r=>r.identity));for(const id of state.selected)if(!valid.has(id))state.selected.delete(id);
- render();if(!silent)toast("已同步云端数据");
+ render();if(r.migrationPending)setTimeout(()=>refresh(true),1000);if(!silent)toast(r.migrationPending?"正在同步现有素材，请稍候…":"已同步云端数据");
  }catch(e){if(!silent)toast(e.message)}
 }
 function allProjects(){return [...new Set([...state.projects.map(p=>p.name),...state.roles.map(r=>r.projectName)])].sort((a,b)=>a.localeCompare(b,"zh-CN"))}
@@ -120,7 +120,7 @@ $("#selectAll").onchange=e=>{for(const r of filtered())e.target.checked?state.se
 $("#deleteButton").onclick=()=>{
  const items=state.roles.filter(r=>state.selected.has(r.identity)).map(r=>({identity:r.identity,revision:r.revision}));
  modal("删除 "+items.length+" 个素材",'<p>选中的素材将移入回收站。编号立即释放，原文件可恢复。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
- $("#cancelDelete").onclick=()=>$("#modal").close();$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=200){const r=await post("/api/assets/delete",{items:items.slice(i,i+200)});deleted+=r.deleted}state.selected.clear();await refresh(true);$("#modal").close();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
+ $("#cancelDelete").onclick=()=>$("#modal").close();$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/delete",{items:items.slice(i,i+25)});deleted+=r.deleted}state.selected.clear();await refresh(true);$("#modal").close();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
 };
 $("#refreshButton").onclick=()=>refresh();
 
