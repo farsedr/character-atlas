@@ -1,11 +1,9 @@
-# 角色图谱 · 手动标签素材库
+# Character Atlas
 
-支持原图上传、原图下载、持久化素材档案与手动添加/移除标签。10个独立维度包含画风、题材、形态、材质、比例、气质、用途、年龄阶段、时代、性别。支持儿童、民国、中世纪等标签及自定义新词。
+角色素材库，支持原图上传下载、十维多标签分类、搜索、新词自动入库及手动编辑。
 
-公共界面源文件位于 public；服务端位于 worker/index.js；数据库 schema 位于 db/schema.ts，迁移由 Drizzle 生成。素材原图与预览存入 R2，元数据与自定义标签存入 D1。新标签随档案保存加入词库；移除档案标签不会删除共享词条。
+## 模型设置
+支持 OpenAI Responses、OpenAI 兼容 Chat Completions、Anthropic Messages、Gemini generateContent 四种协议，以及常见服务地址预设。用户提供自己的 API 密钥和视觉模型 ID；不是所有型号都支持图片。密钥经 AES-GCM 加密存入 D1，不向客户端回传。AI_CONFIG_KEY 仅保存在 Sites 生产环境 secret。分析发送预览图，原图保存在私有 R2。置信度至少0.65的标签自动入库，原有标签保留。
 
-每批最多10张 PNG/JPEG/WebP，单张最大20MB。原图不改动，浏览器生成 JPEG 预览。示例角色仍属于示例，上传的素材可编辑与下载。
-
-无自动图片分析功能，无模型 API 凭据要求。
-
-运行 npm run build 构建 Worker。
+## 开发
+Node.js 24，npm install，npm run build，node scripts/smoke.mjs。迁移生成：npm run db:generate。绑定 D1 DB 和 R2 BUCKET。协议适配使用模拟响应测试，实际服务需用户配置密钥后验证。

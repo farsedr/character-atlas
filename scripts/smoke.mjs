@@ -5,7 +5,7 @@ import vm from "node:vm";
 import { DatabaseSync } from "node:sqlite";
 import worker from "../dist/server/index.js";
 const sql=new DatabaseSync(":memory:");
-sql.exec(fs.readFileSync("drizzle/0000_omniscient_midnight.sql","utf8"));
+for (const file of fs.readdirSync("drizzle").filter(f=>f.endsWith(".sql")).sort()) sql.exec(fs.readFileSync("drizzle/"+file,"utf8"));
 const DB={prepare(q){const stmt=sql.prepare(q);let values=[];return {bind(...args){values=args;return this},async all(){return {results:stmt.all(...values)}},async first(){return stmt.get(...values)||null},async run(){stmt.run(...values);return {success:true}}}},async batch(items){sql.exec("BEGIN");try{const r=[];for(const s of items)r.push(await s.run());sql.exec("COMMIT");return r}catch(e){sql.exec("ROLLBACK");throw e}}};
 const blobs=new Map();
 const BUCKET={async put(k,b){blobs.set(k,new Uint8Array(b))},async get(k){const b=blobs.get(k);return b?{body:b,arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}:null},async delete(k){blobs.delete(k)}};
@@ -24,7 +24,49 @@ assert.equal((await call("/api/assets/"+role.id,{method:"PATCH",body:JSON.string
 const add=await call("/api/tags",{method:"POST",body:JSON.stringify({dimension:"era",name:"架空民国"})});assert.equal(add.status,201);
 await call("/api/tags",{method:"POST",body:JSON.stringify({dimension:"style",name:"自定义绘画"})});
 let library=await (await call("/api/library")).json();assert.equal(library.roles.length,1);assert.equal(library.labels.filter(t=>t.name==="自定义绘画").length,1);
-assert.equal((await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"})).status,404);
+
+assert.equal((await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"})).status,503);
+const configBody={provider:"custom",protocol:"openai",baseUrl:"https://api.vendor.com/v1",model:"vision-test",apiKey:"test-key-not-a-real-credential"};
+assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify(configBody)})).status,503);
+env.AI_CONFIG_KEY=Buffer.alloc(32,7).toString("base64");
+for(const baseUrl of ["http://localhost:8000","https://127.0.0.1","https://api.vendor.com/v1?key=hidden","https://user:secret@api.vendor.com","https://[::1]"]){
+assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,baseUrl})})).status,400);
+}
+let cr=await call("/api/model-config",{method:"PUT",body:JSON.stringify(configBody)});assert.equal(cr.status,200);assert(!(await cr.text()).includes(configBody.apiKey));
+assert(!sql.prepare("SELECT key_cipher FROM atlas_model_config").get().key_cipher.includes(configBody.apiKey));
+cr=await call("/api/model-config");assert(!(await cr.text()).includes(configBody.apiKey));
+assert.equal((await (await call("/api/model-config",{headers:{"oai-authenticated-user-id":"another-user"}})).json()).config,null);
+assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,apiKey:"",baseUrl:"https://other.vendor.com/v1"})})).status,400);
+assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,apiKey:""})})).status,200);
+const realFetch=globalThis.fetch;
+const analysis={description:"模型的视觉描述",tags:[{dimension:"age",name:"儿童",confidence:.95},{dimension:"era",name:"中世纪",confidence:.8},{dimension:"theme",name:"星港童话",confidence:.9},{dimension:"material",name:"薄雾玻璃",confidence:.3}]};
+for(const protocol of ["openai","responses","anthropic","gemini"]){
+assert.equal((await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,protocol})})).status,200);
+globalThis.fetch=async(url,options)=>{
+const b=JSON.parse(options.body);assert.equal(options.redirect,"error");if(protocol!=="gemini")assert.equal(b.model,"vision-test");
+if(protocol==="openai"){assert(url.endsWith("/chat/completions"));assert.equal(options.headers.Authorization,"Bearer "+configBody.apiKey);assert(b.messages[0].content[1].image_url.url.startsWith("data:image/jpeg;base64,"));return Response.json({choices:[{message:{content:JSON.stringify(analysis)}}]})}
+if(protocol==="responses"){assert(url.endsWith("/responses"));assert.equal(b.store,false);assert(b.input[0].content[1].image_url);return Response.json({output:[{content:[{type:"output_text",text:JSON.stringify(analysis)}]}]})}
+if(protocol==="anthropic"){assert(url.endsWith("/messages"));assert.equal(options.headers["x-api-key"],configBody.apiKey);assert(b.messages[0].content[0].source.data);return Response.json({content:[{type:"text",text:JSON.stringify(analysis)}]})}
+assert(url.endsWith("/models/vision-test:generateContent"));assert.equal(options.headers["x-goog-api-key"],configBody.apiKey);assert(b.contents[0].parts[0].inline_data.data);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(analysis)}]}}]});
+};
+const ar=await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"});assert.equal(ar.status,200,await ar.clone().text());const out=await ar.json();
+assert(out.role.tags.some(t=>t.name==="民国"));assert(out.role.tags.some(t=>t.name==="中世纪"));assert(out.role.tags.some(t=>t.name==="星港童话"));assert(!out.role.tags.some(t=>t.name==="薄雾玻璃"));
+}
+globalThis.fetch=async()=>new Response("Unauthorized",{status:401});
+let failed=await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"});assert.equal(failed.status,502);assert(!(await failed.text()).includes(configBody.apiKey));
+assert.equal((await call(role.downloadUrl)).status,200);
+globalThis.fetch=async()=>{
+const row=sql.prepare("SELECT * FROM atlas_assets WHERE id=?").get(role.id);const body=JSON.parse(row.body);body.notes="concurrent manual edit";sql.prepare("UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=?").run(JSON.stringify(body),role.id);
+return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({description:"x",tags:[{dimension:"theme",name:"冲突不入库",confidence:.9}]})}]}}]});
+};
+assert.equal((await call("/api/assets/"+role.id+"/analyze",{method:"POST",body:"{}"})).status,409);
+assert.equal(JSON.parse(sql.prepare("SELECT body FROM atlas_assets WHERE id=?").get(role.id).body).notes,"concurrent manual edit");
+assert.equal(sql.prepare("SELECT count(*) AS n FROM atlas_labels WHERE name='冲突不入库'").get().n,0);
+globalThis.fetch=realFetch;
+library=await (await call("/api/library")).json();assert.equal(library.analysisEnabled,true);assert(!library.labels.some(t=>t.name==="薄雾玻璃"));
+assert.equal((await call("/api/model-config",{method:"DELETE"})).status,200);
+assert.equal((await (await call("/api/library")).json()).analysisEnabled,false);
+
 const bad=new FormData();bad.append("file",new File(["not an image"],"bad.png",{type:"image/png"}));assert.equal((await call("/api/assets",{method:"POST",body:bad})).status,400);
 assert.equal((await worker.fetch(new Request("https://local.test/"),env,{})).status,200);
 const elements=new Map();
@@ -38,6 +80,5 @@ assert.equal(run("taxonomy.length"),10);
 run('state.filters={age:"儿童",era:"民国"};update()');assert.equal(run("matchRoles().length"),1);
 run('detail(roles.find(r=>!r.sample).id)');assert(el("#detail-content").innerHTML.includes("下载原图"));assert(el("#detail-content").innerHTML.includes("儿童"));
 el('#edit-dimension').value='style';run('editor()');assert(el("#edit-dialog").open);
-for(const f of ["worker/index.js","public/manage.js","dist/server/index.js"])assert(!fs.readFileSync(f,"utf8").includes("api.openai.com"));
-console.log("PASS: upload, exact original download, persistent labels, deduplication, revision conflict, auth, origin, removed endpoint, 10 dimensions, combined filters, details, editor.");
+console.log("PASS: upload, exact original download, persistent labels, deduplication, revision conflict, auth, origin, encrypted configuration, four vision protocols, provider failures, concurrent edits, 10 dimensions, combined filters, details, editor.");
 sql.close();

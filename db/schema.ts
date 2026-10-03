@@ -9,3 +9,4 @@ export const assets = sqliteTable("atlas_assets", {
  mime: text("mime").notNull(), filename: text("filename").notNull(), size: integer("size").notNull(),
  revision: integer("revision").notNull().default(1), createdAt: text("created_at").notNull()
 });
+export const modelConfig = sqliteTable("atlas_model_config", {ownerId:text("owner_id").primaryKey(),provider:text("provider").notNull(),protocol:text("protocol").notNull(),baseUrl:text("base_url").notNull(),model:text("model").notNull(),keyCipher:text("key_cipher").notNull(),updatedAt:text("updated_at").notNull()});
