@@ -1,6 +1,6 @@
 import fs from 'node:fs';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';
 const dom=new JSDOM(fs.readFileSync('public/index.html','utf8'),{url:'https://local.test',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window,d=w.document;
-let rotate;w.setInterval=(fn,ms)=>{if(ms===12000)rotate=fn;return 0};w.matchMedia=()=>({matches:false});w.Image=class{set src(value){this.onload?.()}};w.HTMLDialogElement.prototype.close=function(){};
+let rotate;w.setInterval=(fn,ms)=>{if(ms===16000)rotate=fn;return 0};w.requestAnimationFrame=fn=>fn();w.matchMedia=()=>({matches:false});w.Image=class{set src(value){this.onload?.()}};w.HTMLDialogElement.prototype.close=function(){};
 let entered=0,stored;const user={id:'fixture',name:'Fixture',email:'fixture@example.com'};
 w.fetch=async(path,opts={})=>{if(path==='/api/library'){entered++;return{ok:true,json:async()=>({roles:[],labels:[],projects:[],recycle:[]})}}return{ok:true,json:async()=>({user,ownerSetup:false})}};
 w.PasswordCredential=class{constructor(fields){Object.assign(this,fields)}};

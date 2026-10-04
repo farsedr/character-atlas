@@ -1,5 +1,5 @@
 .character-scene{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:-1;background:#0b1120}
-.scene-image{position:absolute;inset:-3%;background-size:cover;background-position:center;opacity:0;transition:opacity 2.8s ease;animation:scene-drift 24s ease-in-out infinite alternate;will-change:transform,opacity}
+.scene-image{position:absolute;inset:-3%;background-size:cover;background-position:center;opacity:0;transition:opacity 6s cubic-bezier(.4,0,.2,1);animation:scene-drift 32s ease-in-out infinite alternate;will-change:transform,opacity}
 .scene-image.is-active{opacity:.82}
 .scene-glow{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,16,29,.08),rgba(9,16,29,.22)),linear-gradient(0deg,rgba(11,17,32,.55) 0%,transparent 55%)}
 .scene-sparkles{position:absolute;inset:-10%;background:radial-gradient(circle at 12% 25%,#c9e5ff99 0 1px,transparent 3px),radial-gradient(circle at 76% 35%,#ded0ff88 0 2px,transparent 4px),radial-gradient(circle at 38% 70%,#b6c7ff88 0 1px,transparent 3px);background-size:370px 410px;animation:scene-drift 17s ease-in-out infinite alternate}
@@ -31,4 +31,9 @@ dialog{background:rgba(16,27,44,.78)!important;backdrop-filter:blur(9px)}
 @keyframes scene-drift{from{transform:scale(1.02) translate(-.5%,-.5%)}to{transform:scale(1.065) translate(.7%,.7%)}}
 @keyframes scene-fade{0%,10%,90%,100%{opacity:0}35%,65%{opacity:.76}}
 @media(max-width:760px){.scene-image{background-position:65% center}.auth-card{background:#0d172b45!important}.auth-art{min-height:260px!important}.entrance-copy h1{font-size:42px}.layout{background:#09101d40!important}}
-@media(prefers-reduced-motion:reduce){.scene-image,.scene-sparkles{animation:none!important}.card:hover{transform:none}.scene-two{display:none}}
+@media(prefers-reduced-motion:reduce){.scene-image,.scene-sparkles{animation:none!important;transition:none!important}.card:hover{transform:none}}
+.auth-screen,.auth-card,.auth-art,.auth-screen input,.auth-screen button,.auth-screen .primary,.auth-screen .entrance-edition,.auth-screen .entrance-symbol{background:transparent!important;border-color:transparent!important;box-shadow:none!important;backdrop-filter:none!important}
+.auth-screen input:hover,.auth-screen button:hover,.auth-screen #rememberPassword[aria-pressed="true"]{background:transparent!important;border-color:transparent!important}
+.auth-screen #authSubmit{color:#f3edff!important;text-shadow:0 2px 6px #000,0 0 14px #c5aeff55}
+.auth-screen label,.auth-screen h2,.auth-screen p,.auth-screen input,.auth-screen .auth-links button{color:#edf3ff!important;text-shadow:0 1px 4px #000,0 2px 8px #0007}
+.auth-screen input:focus,.auth-screen button:focus-visible{outline:1px solid #d8c8ff;outline-offset:3px}
