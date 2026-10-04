@@ -1,0 +1,8 @@
+import fs from "node:fs";import path from "node:path";import crypto from "node:crypto";import {writeZip} from "./zip-package.mjs";import "./package-connector.mjs";
+const files=["README.md","package.json","package-lock.json","drizzle.config.ts",".gitignore",".env.example","start-codex.cmd","start.sh",".openai/hosting.json"];
+function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const f=path.join(dir,e.name);if(e.isDirectory())walk(f);else files.push(f.split(path.sep).join("/"))}}
+for(const dir of ["public","worker","db","drizzle","skills","scripts","docs"])walk(dir);
+for(const f of files){if(/(^|\/)(\.env(?!\.example)|auth\.json|oauth_creds\.json|test-output|node_modules|\.git)(\/|$)/.test(f))throw Error("Forbidden package entry");const content=fs.readFileSync(f);if(/sk-proj-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(content.toString()))throw Error("Credential-like content in "+f)}
+fs.mkdirSync("release",{recursive:true});writeZip(files,"release/character-atlas-source.zip");fs.copyFileSync("public/share/local-connector.zip","release/local-connector.zip");fs.copyFileSync("docs/USER-GUIDE.md","release/USER-GUIDE.md");
+const names=["character-atlas-source.zip","local-connector.zip","USER-GUIDE.md"];fs.writeFileSync("release/SHA256SUMS.txt",names.map(n=>crypto.createHash("sha256").update(fs.readFileSync("release/"+n)).digest("hex")+"  "+n).join("\n")+"\n");
+console.log("Release packages built: "+files.length+" source files; no account files.");

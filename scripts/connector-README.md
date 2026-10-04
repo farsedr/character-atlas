@@ -10,3 +10,5 @@ Gemini: npm install -g @google/gemini-cli，然后 gemini，选择 Login with Go
 
 安装位置自动寻找。包内无账号、API密钥或配对码。每次启动生成新配对码。
 指南：https://character-atlas-wang-20261003.wqlwoaiwo.chatgpt.site/connection-guide.html
+
+Version 3: automatic collections. Full guide: docs/USER-GUIDE.md
