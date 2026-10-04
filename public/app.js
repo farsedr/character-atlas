@@ -1,6 +1,6 @@
 "use strict";
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const state={user:null,roles:[],labels:[],projects:[],recycle:[],view:"library",filters:{},selected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
+const state={user:null,roles:[],labels:[],projects:[],recycle:[],view:"library",filters:{},filtersExpanded:false,selected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
 async function api(path,options={}){
  const r=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...options.headers}});
  let b;try{b=await r.json()}catch{throw new Error("服务暂不可用，请稍后重试")}
@@ -9,7 +9,7 @@ async function api(path,options={}){
 const post=(path,b)=>api(path,{method:"POST",body:JSON.stringify(b)});
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div>'+body;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
-function showAuth(){state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
+function showAuth(){closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
  $("#nameLabel").hidden=mode!=="register";$("#confirmLabel").hidden=mode==="login";$("#recoveryLabel").hidden=mode!=="recover";
@@ -42,9 +42,19 @@ function allProjects(){return [...new Set([...state.projects.map(p=>p.name),...s
 function labelOptions(d){return [...new Set(state.labels.filter(t=>t.dimension===d).map(t=>t.name))].sort((a,b)=>a.localeCompare(b,"zh-CN"))}
 function groupedOptions(dim,selected){const byName=new Map(state.labels.filter(t=>t.dimension===dim).map(t=>[t.name,t])),groups=new Map();for(const t of byName.values()){const key=t.groupName||"自定义";if(!groups.has(key))groups.set(key,[]);groups.get(key).push(t.name)}return [...groups].map(([g,names])=>'<optgroup label="'+esc(g)+'">'+names.sort((a,b)=>a.localeCompare(b,"zh-CN")).map(n=>'<option value="'+esc(n)+'"'+(selected===n?' selected':'')+'>'+esc(n)+'</option>').join("")+'</optgroup>').join("")}
 function renderFilters(){
- $("#filters").innerHTML=ATLAS.taxonomy.map(d=>'<select data-filter="'+d.id+'" aria-label="'+esc(d.name)+'"><option value="">'+esc(d.name)+'</option>'+groupedOptions(d.id,state.filters[d.id])+'</select>').join("");
+ closeFilterPopover();
+ $("#filters").innerHTML=ATLAS.taxonomy.map((d,i)=>'<div class="filter-control"'+(!state.filtersExpanded&&i>=3&&!state.filters[d.id]?' hidden':'')+'><select hidden data-filter="'+d.id+'" aria-label="'+esc(d.name)+'"><option value="">'+esc(d.name)+'</option>'+groupedOptions(d.id,state.filters[d.id])+'</select><button class="filter-trigger" data-filter-trigger="'+d.id+'" aria-haspopup="listbox" aria-expanded="false"><span>'+esc(state.filters[d.id]?d.name+' · '+state.filters[d.id]:d.name)+'</span><span aria-hidden="true">⌄</span></button></div>').join("");
+ $("#toggleFilters").textContent=state.filtersExpanded?"收起筛选":"更多筛选";$("#toggleFilters").setAttribute("aria-expanded",String(state.filtersExpanded));const count=Object.values(state.filters).filter(Boolean).length;$("#filterSummary").textContent=count?"已选 "+count+" 个条件":"";
  const old=$("#projectFilter").value;$("#projectFilter").innerHTML='<option value="">灵感集</option>'+allProjects().map(p=>'<option>'+esc(p)+'</option>').join("");$("#projectFilter").value=old;
 }
+function closeFilterPopover(focus=false){const popup=$("#filterPopover");if(!popup)return;const trigger=document.querySelector('[data-filter-trigger="'+popup.dataset.dimension+'"]');popup.remove();trigger?.setAttribute("aria-expanded","false");if(focus)trigger?.focus()}
+function openFilterPopover(trigger){const dim=trigger.dataset.filterTrigger;if($("#filterPopover")?.dataset.dimension===dim){closeFilterPopover(true);return}closeFilterPopover();const d=ATLAS.taxonomy.find(d=>d.id===dim),popup=document.createElement("div");popup.id="filterPopover";popup.className="filter-popover";popup.dataset.dimension=dim;popup.innerHTML='<input class="filter-search" aria-label="搜索'+esc(d.name)+'标签" placeholder="搜索'+esc(d.name)+'标签"><div class="filter-options" role="listbox" aria-label="'+esc(d.name)+'"></div>';document.body.append(popup);trigger.setAttribute("aria-expanded","true");const search=popup.querySelector("input"),list=popup.querySelector(".filter-options");
+const options=[{name:"不限"+d.name,value:"",group:""},...[...new Map(state.labels.filter(t=>t.dimension===dim).map(t=>[t.name,t])).values()].sort((a,b)=>(a.groupName||"").localeCompare(b.groupName||"","zh-CN")||a.name.localeCompare(b.name,"zh-CN")).map(t=>({name:t.name,value:t.name,group:t.groupName||"自定义"}))];
+function update(){const q=search.value.trim().toLowerCase();let group=null;list.innerHTML=options.filter(t=>!q||t.name.toLowerCase().includes(q)||t.group.toLowerCase().includes(q)).map(t=>{let head=t.group&&group!==t.group?'<div class="filter-group">'+esc(t.group)+'</div>':"";group=t.group;return head+'<button role="option" aria-selected="'+String((state.filters[dim]||"")===t.value)+'" data-value="'+esc(t.value)+'">'+esc(t.name)+'</button>'}).join("")||'<p class="filter-empty">没有匹配的标签</p>'}update();search.oninput=update;
+list.onclick=e=>{const option=e.target.closest("[data-value]");if(!option)return;state.filters[dim]=option.dataset.value;state.page=1;render();document.querySelector('[data-filter-trigger="'+dim+'"]')?.focus()};popup.onkeydown=e=>{if(e.key==="Escape"){e.preventDefault();closeFilterPopover(true)}else if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();const buttons=[...list.querySelectorAll("button")],index=buttons.indexOf(document.activeElement);buttons[(index+(e.key==="ArrowDown"?1:-1)+buttons.length)%buttons.length]?.focus()}};
+const rect=trigger.getBoundingClientRect(),width=Math.min(Math.max(rect.width,240),window.innerWidth-24),below=window.innerHeight-rect.bottom-12,above=rect.top-12,space=Math.max(100,Math.min(300,Math.max(below,above)));popup.style.width=width+"px";popup.style.left=Math.max(12,Math.min(rect.left,window.innerWidth-width-12))+"px";popup.style.maxHeight=space+"px";if(below>=Math.min(300,above))popup.style.top=rect.bottom+6+"px";else popup.style.bottom=window.innerHeight-rect.top+6+"px";search.focus()}
+$("#toggleFilters").onclick=()=>{state.filtersExpanded=!state.filtersExpanded;renderFilters()};$("#filters").onclick=e=>{const trigger=e.target.closest("[data-filter-trigger]");if(trigger)openFilterPopover(trigger)};
+document.addEventListener("pointerdown",e=>{if(!e.target.closest("#filterPopover")&&!e.target.closest("[data-filter-trigger]"))closeFilterPopover()});window.addEventListener("resize",()=>closeFilterPopover());window.addEventListener("scroll",e=>{if(!e.target.closest?.("#filterPopover"))closeFilterPopover()},true);
 function filtered(){
  const q=$("#search").value.trim().toLowerCase(),p=$("#projectFilter").value;
  let list=state.roles.filter(r=>(!p||r.projectName===p)&&Object.entries(state.filters).every(([dim,n])=>!n||r.tags.some(t=>t.dimension===dim&&t.name===n))&&(!q||[r.id,r.name,r.filename,r.projectName,r.generationPrompt,r.description,...r.tags.map(t=>t.name)].join(" ").toLowerCase().includes(q)));
@@ -202,5 +212,5 @@ $("#installButton").onclick=async()=>{
 $("#modal").addEventListener("close",()=>{$("#modalContent").innerHTML=""});
 $("#modal").addEventListener("cancel",e=>{if($("#closeModal")?.disabled)e.preventDefault()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
-setInterval(()=>{if(state.user&&!document.hidden&&!$("#modal").open)refresh(true)},30000);
+setInterval(()=>{if(state.user&&!document.hidden&&!$("#modal").open&&!$("#filterPopover"))refresh(true)},30000);
 (async()=>{try{const r=await api("/api/auth/me");state.ownerSetup=r.ownerSetup;authMode(r.ownerSetup?"register":"login");if(r.user)await loginReady(r.user)}catch(e){$("#authError").textContent=e.message}})();
