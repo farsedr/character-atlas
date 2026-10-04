@@ -68,8 +68,12 @@ function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";cl
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div><div class="dialog-body">'+body+'</div>';$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
 function showAuth(){codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
 const sceneStyle=document.createElement("link");sceneStyle.rel="stylesheet";sceneStyle.href="/scene.css";document.head.append(sceneStyle);
-const scene=document.createElement("div");scene.className="character-scene";scene.setAttribute("aria-hidden","true");scene.innerHTML='<div class="scene-image scene-one"></div><div class="scene-image scene-two"></div><div class="scene-glow"></div><div class="scene-sparkles"></div>';document.body.prepend(scene);
-localStorage.removeItem("atlas-login-preference");
+const scene=document.createElement("div");scene.className="character-scene";scene.setAttribute("aria-hidden","true");scene.innerHTML='<div class="scene-image is-active"></div><div class="scene-image"></div><div class="scene-glow"></div><div class="scene-sparkles"></div>';document.body.prepend(scene);
+const scenePictures=["/scene-palace.png","/scene-blue.png","/scene-gold.png","/scene-silver.png","/scene-qingxiao-portrait.png","/scene-qingxiao-full.png"];
+const sceneLayers=scene.querySelectorAll(".scene-image");let sceneIndex=0,sceneLayer=0;sceneLayers[0].style.backgroundImage='url("'+scenePictures[0]+'")';
+setInterval(()=>{if(document.hidden||window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)return;const nextIndex=(sceneIndex+1)%scenePictures.length,nextLayer=1-sceneLayer,img=new Image();img.onload=()=>{sceneLayers[nextLayer].style.backgroundImage='url("'+scenePictures[nextIndex]+'")';sceneLayers[nextLayer].style.backgroundPosition=nextIndex>=4?"center 28%":"center";sceneLayers[nextLayer].classList.add("is-active");sceneLayers[sceneLayer].classList.remove("is-active");sceneIndex=nextIndex;sceneLayer=nextLayer};img.src=scenePictures[nextIndex]},12000);
+const remember=document.createElement("div");remember.id="rememberRow";remember.innerHTML='<button id="rememberPassword" type="button" aria-pressed="false">记住密码</button><p class="form-note">由浏览器保存，仍需点击登录。</p>';$("#authSubmit").before(remember);
+$("#rememberPassword").onclick=()=>$("#rememberPassword").setAttribute("aria-pressed",String($("#rememberPassword").getAttribute("aria-pressed")!=="true"));
 document.addEventListener("visibilitychange",()=>document.body.classList.toggle("scene-paused",document.hidden));
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
@@ -78,6 +82,10 @@ function authMode(mode){
  $("#authHint").textContent=mode==="register"?(state.ownerSetup?"注册后，你现有的素材将归属到这个账号。":"每个用户独立注册，素材库与其他账号完全隔离。"):"使用同一个账号，在不同设备继续整理。";
  $("#passwordLabel").textContent=mode==="recover"?"新密码":"密码";$("#authSubmit").textContent={login:"登录",register:"注册",recover:"重设密码"}[mode];
  $("#authForm").elements.password.autocomplete=mode==="login"?"current-password":"new-password";
+ $("#rememberRow").hidden=mode!=="login";
+ let remembered;try{remembered=JSON.parse(localStorage.getItem("atlas-login-preference")||"null")}catch{}
+ $("#rememberPassword").setAttribute("aria-pressed",String(!!remembered));
+ if(mode==="login"&&remembered)$("#authForm").elements.email.value=remembered.email||"";
 }
 async function loginReady(user){state.user=user;globalThis.resumeBaiduBackup?.();loadCodexPreference();state.filters={};state.selected.clear();state.view="library";$("#authScreen").hidden=true;$("#app").hidden=false;$("#userName").textContent=user.name+" · "+user.email;await refresh()}
 function recoveryDialog(code){
@@ -89,7 +97,7 @@ $("#authForm").onsubmit=async e=>{
  e.preventDefault();const form=e.currentTarget,b=Object.fromEntries(new FormData(form));
  if(state.authMode!=="login"&&b.password!==b.confirmPassword){$("#authError").textContent="两次输入的密码不一致";return}
  $("#authSubmit").disabled=true;$("#authError").textContent="";
- try{const r=await post("/api/auth/"+state.authMode,b);form.reset();await loginReady(r.user);if(r.recoveryCode)recoveryDialog(r.recoveryCode)}catch(e){$("#authError").textContent=e.message}finally{$("#authSubmit").disabled=false}
+ try{const r=await post("/api/auth/"+state.authMode,b);if(state.authMode==="login"){if($("#rememberPassword").getAttribute("aria-pressed")==="true"){localStorage.setItem("atlas-login-preference",JSON.stringify({email:b.email}));if(window.PasswordCredential&&navigator.credentials?.store)try{await navigator.credentials.store(new PasswordCredential({id:b.email,password:b.password,name:r.user.name}))}catch{}}else localStorage.removeItem("atlas-login-preference")}form.reset();await loginReady(r.user);if(r.recoveryCode)recoveryDialog(r.recoveryCode)}catch(e){$("#authError").textContent=e.message}finally{$("#authSubmit").disabled=false}
 };
 document.querySelectorAll("[data-auth]").forEach(b=>b.onclick=()=>authMode(b.dataset.auth));
 async function refresh(silent=false){
@@ -329,4 +337,4 @@ $("#modal").addEventListener("close",()=>{$("#modalContent").innerHTML=""});
 $("#modal").addEventListener("cancel",e=>{if($("#closeModal")?.disabled)e.preventDefault()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
 setInterval(()=>{if(state.user&&!document.hidden&&!$("#modal").open&&!$("#filterPopover"))refresh(true)},30000);
-(async()=>{try{const r=await api("/api/auth/me");state.ownerSetup=r.ownerSetup;authMode(r.ownerSetup?"register":"login");if(r.user)$("#authForm").elements.email.value=r.user.email}catch(e){$("#authError").textContent=e.message}})();
+(async()=>{try{const r=await api("/api/auth/me");state.ownerSetup=r.ownerSetup;authMode(r.ownerSetup?"register":"login");if(r.user)$("#authForm").elements.email.value=r.user.email;if(localStorage.getItem("atlas-login-preference")&&navigator.credentials?.get&&window.PasswordCredential){try{const saved=await navigator.credentials.get({password:true,mediation:"silent"});if(saved&&state.authMode==="login"&&!state.user){$("#authForm").elements.email.value=saved.id;$("#authForm").elements.password.value=saved.password}}catch{}}}catch(e){$("#authError").textContent=e.message}})();
