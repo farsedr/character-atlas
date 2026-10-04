@@ -7,7 +7,8 @@ if (-not $taskNode) {
  foreach ($taskCandidate in $taskCandidates) { if (Test-Path -LiteralPath $taskCandidate) { $taskNode = $taskCandidate; break } }
 }
 if (-not $taskNode) { Start-Process 'https://nodejs.org/en/download'; throw 'Install Node.js 22 or newer, then start again.' }
-$taskMajor = & $taskNode -p 'process.versions.node.split(".")[0]'
+$taskVersion = & $taskNode --version
+$taskMajor = [int]($taskVersion.TrimStart('v').Split('.')[0])
 if ([int]$taskMajor -lt 22) { throw 'Node.js 22 or newer is required.' }
 $taskBridge = Join-Path $PSScriptRoot 'codex-connector.mjs'
 $taskRunning = $false
