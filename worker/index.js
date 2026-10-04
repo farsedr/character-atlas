@@ -66,10 +66,10 @@ async function upload(request,env,owner){
  const previewBytes=await preview.arrayBuffer();if(signature(new Uint8Array(previewBytes))!=="image/jpeg")throw new HttpError(400,"预览图必须为JPEG");
  const mode=String(form.get("namingMode")||"original");if(!["original","custom","ai"].includes(mode))throw new HttpError(400,"命名方式无效");
  const filename=file.name.replace(/[\x00-\x1f/\\]/g,"_").slice(0,180),name=mode==="custom"?textValue(String(form.get("name")||""),80):textValue(filename,180);
- if(mode==="ai"&&!(await modelConfig(env,owner)))throw new HttpError(400,"自动命名需要先配置视觉模型");
+ let requestedTags=[];try{requestedTags=JSON.parse(String(form.get("tags")||"[]"))}catch{throw new HttpError(400,"手动标签格式无效")}const tags=await canonicalTags(env,requestedTags,"manual",owner);
  const requestedGrouping=form.get("groupingMode"),requestedProject=String(form.get("projectName")||"未分组");const groupingMode=requestedGrouping==="manual"||(!requestedGrouping&&requestedProject!=="未分组")?"manual":"ai";const p=await project(env,owner,groupingMode==="ai"?"未分组":String(form.get("projectName")||"未分组"));
  const id=crypto.randomUUID(),originalKey="originals/"+id,previewKey="previews/"+id,date=new Date().toISOString();
- const role={name,description:"",tags:[],projectId:p.id,projectName:p.name,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
+ await persistLabels(env,tags,owner);const role={name,description:"",tags,projectId:p.id,projectName:p.name,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
  const b=bucket(env);let row;
  try{
   await b.put(originalKey,bytes,{httpMetadata:{contentType:mime}});await b.put(previewKey,previewBytes,{httpMetadata:{contentType:"image/jpeg"}});
