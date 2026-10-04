@@ -70,13 +70,13 @@ for(const protocol of ["openai","responses","anthropic","gemini"]){
  r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;assert.equal(aiRole.name,"春日山谷");assert(aiRole.name.length<=4);assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙侠"));assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙子"));assert.equal(aiRole.generationPrompt,"用户手动提示词");assert.equal(Object.keys(aiRole.analysisResult.dimensions).length,24);assert.equal(aiRole.analysisResult.dimensions.lighting.primary,"侧逆光");assert.equal(aiRole.analysisResult.dimensions.pose.primary,"not_applicable");assert(aiRole.tags.some(t=>t.dimension==="hairstyle"&&t.name==="超长发"));assert(aiRole.tags.some(t=>t.dimension==="makeup"&&t.name==="清透妆"));assert(aiRole.tags.some(t=>t.dimension==="material"&&t.status==="candidate"&&t.evidence.length));assert(!aiRole.tags.some(t=>["unknown","not_applicable"].includes(t.name)));assert(!aiRole.tags.some(t=>t.dimension==="lighting"));
 }
 
-const localRole=aiRole, localPath=path(localRole,"analysis-result"),localPayload={identity:localRole.identity,revision:localRole.revision,result:analysis};
+const localRole=aiRole, localPath=path(localRole,"analysis-result"),localPayload={identity:localRole.identity,revision:localRole.revision,result:analysis,model:"gpt-6-sol",reasoning:"medium"};
 assert.equal((await post(localPath,localPayload,bobCookie)).status,404);
 assert.equal((await post(localPath,{...localPayload,revision:localRole.revision-1},ownerCookie)).status,409);
 const noEvidence=structuredClone(analysis);noEvidence.dimensions.subject.evidence=[];
 assert.equal((await post(localPath,{...localPayload,result:noEvidence},ownerCookie)).status,502);
 r=await post(localPath,localPayload,ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;
-assert.equal(aiRole.analysisResult.model,"gpt-6-luna");assert.equal(aiRole.analysisResult.provider,"codex-local");
+assert.equal(aiRole.analysisResult.model,"gpt-6-sol");assert.equal(aiRole.analysisResult.reasoning,"medium");assert.equal(aiRole.analysisResult.provider,"codex-local");
 assert.equal((await post(localPath,localPayload,ownerCookie)).status,409);
 globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:JSON.stringify({...analysis,shortName:"超过四个汉字的名字"})}]}}]});
 r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,502);assert.equal((await (await call("/api/library",{},ownerCookie)).json()).roles.find(r=>r.identity===aiRole.identity).name,"春日山谷");

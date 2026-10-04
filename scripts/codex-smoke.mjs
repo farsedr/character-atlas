@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import {createConnector,argumentsFor,outputSchema,MODEL,ORIGIN} from "./codex-connector.mjs";
+import {createConnector,argumentsFor,outputSchema,MODEL,ORIGIN,modelCatalog,selectedOptions} from "./codex-connector.mjs";
 import fs from "node:fs";
-const token="a".repeat(48),port=14379;let release,calls=0;
-const server=createConnector({token,port,analyze:async()=>{calls++;return await new Promise(resolve=>release=resolve)}});
+const token="a".repeat(48),port=14379;let release,calls=0,used;
+const models=[{id:MODEL,name:"GPT-6 Luna",efforts:["low","high"]},{id:"gpt-6-sol",name:"GPT-6 Sol",efforts:["low","medium","high"]}];
+const server=createConnector({token,port,getModels:async()=>models,analyze:async(image,options)=>{used=options;calls++;return await new Promise(resolve=>release=resolve)}});
 await new Promise(resolve=>server.listen(port,"127.0.0.1",resolve));
 const url="http://127.0.0.1:"+port,headers={Origin:ORIGIN,"X-Atlas-Token":token};
 try{
@@ -14,10 +15,15 @@ try{
  assert.equal((await fetch(url+"/execute",{method:"POST",headers,body:"arbitrary command"})).status,404);
  assert.equal((await fetch(url+"/analyze",{method:"POST",headers,body:"command"})).status,415);
  assert.equal((await fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:"command"})).status,502);assert.equal(calls,0);
- const request=fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255,217])});
+ assert.equal((await fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg","X-Atlas-Model":"--yolo"},body:Buffer.from([255,216,255])})).status,400);
+ assert.equal((await fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg","X-Atlas-Reasoning":"max"},body:Buffer.from([255,216,255])})).status,400);
+ const request=fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255,217]),headers:{...headers,"Content-Type":"image/jpeg","X-Atlas-Model":"gpt-6-sol","X-Atlas-Reasoning":"medium"}});
  while(!release)await new Promise(resolve=>setTimeout(resolve,10));
  const busy=await fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255])});assert.equal(busy.status,429);
- release({shortName:"测试"});assert.equal((await request).status,200);assert.equal(calls,1);
+ release({shortName:"测试"});assert.equal((await request).status,200);assert.equal(calls,1);assert.deepEqual(used,{model:"gpt-6-sol",reasoning:"medium"});
+ assert.throws(()=>selectedOptions(models,"gpt-other"),/模型/);assert.throws(()=>selectedOptions(models,MODEL,"max"),/推理/);
+ const custom=argumentsFor("image","schema","output",used);assert.equal(custom[custom.indexOf("--model")+1],"gpt-6-sol");assert(custom.includes('model_reasoning_effort="medium"'));
+ assert.deepEqual(modelCatalog({models:[{slug:MODEL,visibility:"list",input_modalities:["image"],supported_reasoning_levels:[{effort:"low"},{effort:"ultra"}]},{slug:"gpt-secret",visibility:"hide",input_modalities:["image"]}]}).map(m=>m.efforts),[["low"]]);
  const args=argumentsFor("image","schema","output");assert.equal(args[args.indexOf("--model")+1],"gpt-6-luna");assert(args.includes('model_reasoning_effort="low"'));assert(args.includes('service_tier="default"'));assert(args.includes("--ignore-user-config"));assert(args.includes("shell_tool"));assert(!args.includes("--yolo"));assert.equal(args.at(-1),"-");
  const schema=outputSchema(JSON.parse(fs.readFileSync("skills/image-analysis-taxonomy/taxonomy.json")));assert.equal(Object.keys(schema.properties.dimensions.properties).length,24);
  console.log("PASS: Codex exact origin/pair authentication, JPEG-only fixed endpoint, single concurrency, no arbitrary execution, cheapest pinned model/low effort, 24-dimension schema.");

@@ -175,7 +175,7 @@ async function saveAnalysis(env,row,owner,parsed,source){
   const existing=(saved.tags||[]).filter(t=>dimensions().includes(t.dimension)),merged=[...existing,...accepted.filter(t=>!existing.some(e=>e.dimension===t.dimension&&normalize(e.name)===normalize(t.name)))];if(merged.length>60)throw new HttpError(400,"合并后标签超过60个");
   const shortName=typeof parsed.shortName==="string"?parsed.shortName.trim():"";
   if(saved.namingMode==="ai"&&!/^[\u3400-\u9fff]{1,4}$/.test(shortName))throw new HttpError(502,"模型命名须为1至4个汉字，原素材名已保留，可重试");
-  const role={...saved,tags:merged,description:saved.description||analysis.summary,...(saved.namingMode==="ai"?{name:shortName}:{}),analysisStatus:"done",analysisResult:{taxonomy_version:"1.0.0",...analysis,acceptedCount:accepted.length,model:source.model,provider:source.provider,at:new Date().toISOString()}};
+  const role={...saved,tags:merged,description:saved.description||analysis.summary,...(saved.namingMode==="ai"?{name:shortName}:{}),analysisStatus:"done",analysisResult:{taxonomy_version:"1.0.0",...analysis,acceptedCount:accepted.length,model:source.model,reasoning:source.reasoning||"low",provider:source.provider,at:new Date().toISOString()}};
   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
   if(!updated)throw new HttpError(409,"分析期间素材已修改或删除，请刷新");
   await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
@@ -227,7 +227,8 @@ async function handleApi(request,env,url){
   if(row.deleted_at&& !["preview","download"].includes(match[2]))throw new HttpError(409,"素材已删除");
   if(match[2]==="analysis-result"&&request.method==="POST"){
    const b=await request.json();if(b.identity!==row.id||!Number.isInteger(b.revision)||b.revision!==row.revision)throw new HttpError(409,"素材已变化，请重新分析");
-   return saveAnalysis(env,row,owner,b.result,{model:"gpt-6-luna",provider:"codex-local"});
+   const model=b.model||"gpt-6-luna",reasoning=b.reasoning||"low";if(typeof model!=="string"||!/^gpt-[a-z0-9.-]{1,100}$/.test(model)||!["low","medium","high","xhigh","max"].includes(reasoning))throw new HttpError(400,"模型选项无效");
+   return saveAnalysis(env,row,owner,b.result,{model,reasoning,provider:"codex-local"});
   }
   if(match[2]==="analyze"&&request.method==="POST")return analyze(env,row,owner);
   if(!match[2]&&request.method==="PATCH")return saveRole(env,row,await request.json(),owner);
