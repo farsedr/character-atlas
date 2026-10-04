@@ -88,7 +88,7 @@ $("#authForm").onsubmit=async e=>{
 document.querySelectorAll("[data-auth]").forEach(b=>b.onclick=()=>authMode(b.dataset.auth));
 async function refresh(silent=false){
  if(!state.user)return;try{
- const r=await api("/api/library");Object.assign(state,{roles:r.roles,labels:r.labels,projects:r.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
+ const r=await api("/api/library");Object.assign(state,{roles:r.roles,labels:r.labels.map(t=>({...t,groupName:tagGroup(ATLAS.taxonomy,t)})),projects:r.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
  const valid=new Set(state.roles.map(r=>r.identity));for(const id of state.selected)if(!valid.has(id))state.selected.delete(id);
  const recycled=new Set(state.recycle.map(r=>r.identity));for(const id of state.recycleSelected)if(!recycled.has(id))state.recycleSelected.delete(id);
  render();if(r.migrationPending)setTimeout(()=>refresh(true),1000);if(!silent)toast(r.migrationPending?"正在同步现有素材，请稍候…":"已同步云端数据");
@@ -143,8 +143,8 @@ function renderAuxiliary(){
   $("#content").innerHTML='<div class="selection-bar"><label class="check"><input id="recycleAll" type="checkbox">全选</label><span id="recycleCount"></span><button id="purgeSelected" class="danger">删除选中</button><button id="clearRecycle" class="danger">清空</button></div>'+(state.recycle.length?'<div class="grid">'+state.recycle.map(r=>card(r,true)).join("")+'</div>':'<div class="empty">回收站为空</div>');recycleSelection();$("#recycleAll").onchange=e=>{for(const r of state.recycle)e.target.checked?state.recycleSelected.add(r.identity):state.recycleSelected.delete(r.identity);renderAuxiliary()};$("#purgeSelected").onclick=()=>purgeDialog(state.recycle.filter(r=>state.recycleSelected.has(r.identity)));$("#clearRecycle").onclick=()=>purgeDialog([...state.recycle],true);
  }else if(state.view==="taxonomy"){
   $("#content").innerHTML=ATLAS.taxonomy.map(d=>{
-   const tags=state.labels.filter(t=>t.dimension===d.id),groups=[...new Set(tags.map(t=>t.groupName||"新增标签"))];
-   return '<section class="panel"><div class="category-head"><div><h3>'+esc(d.name)+'</h3><span class="muted small">'+esc(d.description||"固定父类别")+' · '+tags.length+' 个子标签</span></div><button data-add-tag="'+d.id+'">＋ 添加子标签</button></div>'+groups.map(g=>'<div class="tag-group"><h4>'+esc(g)+'</h4>'+tags.filter(t=>(t.groupName||"新增标签")===g).map(t=>'<span class="chip">'+esc(t.name)+'</span>').join("")+'</div>').join("")+'</section>';
+   const tags=state.labels.filter(t=>t.dimension===d.id),groups=[...new Set(tags.map(t=>tagGroup(ATLAS.taxonomy,t)))];
+   return '<section class="panel"><div class="category-head"><div><h3>'+esc(d.name)+'</h3><span class="muted small">'+esc(d.description||"固定父类别")+' · '+tags.length+' 个子标签</span></div><button data-add-tag="'+d.id+'">＋ 添加子标签</button></div>'+groups.map(g=>'<div class="tag-group"><h4>'+esc(g)+'</h4>'+tags.filter(t=>(tagGroup(ATLAS.taxonomy,t))===g).map(t=>'<span class="chip">'+esc(t.name)+'</span>').join("")+'</div>').join("")+'</section>';
   }).join("");
  }else{
   $("#content").innerHTML='<div class="dialog-actions"><button id="newProject">新建灵感集</button></div><div class="project-grid">'+allProjects().filter(p=>state.roles.some(r=>roleProjects(r).includes(p))).map(p=>'<section class="panel project-card"><h3>'+esc(p)+'</h3><span class="muted small">灵感集</span><strong>'+state.roles.filter(r=>roleProjects(r).includes(p)).length+'</strong><button data-project="'+esc(p)+'">浏览素材</button></section>').join("")+'</div>';$("#newProject").onclick=()=>newProject();

@@ -29,7 +29,7 @@ w.fetch=async(path,opts={})=>{
  return{ok:true,status:200,json:async()=>result};
 };
 const downloads=[];w.URL.createObjectURL=()=>"blob:test";w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){downloads.push(this.download)};w.setInterval=()=>0;w.eval(scriptText("data.js")+";globalThis.seed=ATLAS");labels=w.seed.taxonomy.flatMap(d=>d.groups.flatMap(g=>g.values.map(name=>({dimension:d.id,name,groupName:g.name}))));
-w.ATLAS=w.seed;w.eval(scriptText("app.js"));
+w.ATLAS=w.seed;w.eval(scriptText("tag-groups.js"));w.eval(scriptText("app.js"));
 const wait=()=>new Promise(resolve=>setTimeout(resolve,0)),click=s=>d.querySelector(s).click(),change=s=>d.querySelector(s).dispatchEvent(new w.Event("change",{bubbles:true}));
 await wait();assert.equal(d.querySelector("#authScreen").hidden,false);click('[data-auth="register"]');const f=d.querySelector("#authForm");f.elements.email.value="user@example.com";f.elements.name.value="独立用户";f.elements.password.value="long-enough-password";f.elements.confirmPassword.value="long-enough-password";f.dispatchEvent(new w.Event("submit",{bubbles:true,cancelable:true}));await wait();await wait();
 assert.equal(d.querySelector("#app").hidden,false);assert.equal(d.querySelector("#authScreen").hidden,true);assert(d.querySelector("#modalContent").textContent.includes("恢复代码"));click("#savedRecovery");

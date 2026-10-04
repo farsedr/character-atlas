@@ -18,7 +18,7 @@ async function migrateLegacy(env){
 }
 async function registry(env,owner){
  const rows=await query(env,"SELECT * FROM atlas_labels WHERE owner_id=? AND dimension<>'use' ORDER BY created_at",owner).all();
- const all=[...SEED.taxonomy.flatMap(d=>d.groups.flatMap(g=>g.values.map(name=>({dimension:d.id,name,groupName:g.name,source:"builtin",key:d.id+":"+normalize(name)})))),...rows.results.map(t=>({...t,groupName:t.group_name,key:t.dimension+":"+normalize(t.name)}))];const seen=new Set();return all.filter(t=>{if(seen.has(t.key))return false;seen.add(t.key);return true});
+ const all=[...SEED.taxonomy.flatMap(d=>d.groups.flatMap(g=>g.values.map(name=>({dimension:d.id,name,groupName:g.name,source:"builtin",key:d.id+":"+normalize(name)})))),...rows.results.map(t=>({...t,groupName:tagGroup(SEED.taxonomy,t),key:t.dimension+":"+normalize(t.name)}))];const seen=new Set();return all.filter(t=>{if(seen.has(t.key))return false;seen.add(t.key);return true});
 }
 async function canonicalTags(env,input,source="manual",owner){
  if(!Array.isArray(input)||input.length>120)throw new HttpError(400,"最多120个标签");
@@ -26,12 +26,12 @@ async function canonicalTags(env,input,source="manual",owner){
  for(const t of input){
   if(!t||!dimensions().includes(t.dimension))throw new HttpError(400,"只能在固定父类别下添加子标签");
   let name=clean(t.name),key=t.dimension+":"+normalize(name),found=known.find(k=>k.key===key);name=found?.name||name;
-  if(!seen.has(key)){seen.add(key);tags.push({dimension:t.dimension,name,groupName:found?.groupName||clean(t.groupName||"新增标签"),source})}
+  if(!seen.has(key)){seen.add(key);tags.push({dimension:t.dimension,name,groupName:clean(tagGroup(SEED.taxonomy,{...t,name,groupName:found?.groupName||t.groupName})),source})}
  }
  return tags;
 }
 function downloadName(row){const role=JSON.parse(row.body);let name=String(role.name||"素材").normalize("NFKC").replace(/[\\/:*?"<>|\x00-\x1f]/g,"_").replace(/[. ]+$/g,"").slice(0,160)||"素材";if(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name))name="_"+name;const suffix={"image/png":".png","image/jpeg":".jpg","image/webp":".webp"}[row.mime]||".bin";return name.replace(/\.(png|jpe?g|webp)$/i,"")+suffix}
-function labelStatements(env,tags,owner){const statements=[];for(let i=0;i<tags.length;i+=12){const group=tags.slice(i,i+12),values=group.flatMap(t=>[owner+"|"+t.dimension+":"+normalize(t.name),t.dimension,t.name,t.source,new Date().toISOString(),owner,t.groupName||"新增标签"]);statements.push(query(env,"INSERT OR IGNORE INTO atlas_labels (key,dimension,name,source,created_at,owner_id,group_name) VALUES "+group.map(()=>"(?,?,?,?,?,?,?)").join(","),...values))}return statements}
+function labelStatements(env,tags,owner){const statements=[];for(let i=0;i<tags.length;i+=12){const group=tags.slice(i,i+12),values=group.flatMap(t=>[owner+"|"+t.dimension+":"+normalize(t.name),t.dimension,t.name,t.source,new Date().toISOString(),owner,tagGroup(SEED.taxonomy,t)]);statements.push(query(env,"INSERT OR IGNORE INTO atlas_labels (key,dimension,name,source,created_at,owner_id,group_name) VALUES "+group.map(()=>"(?,?,?,?,?,?,?)").join(","),...values))}return statements}
 async function persistLabels(env,tags,owner){const statements=labelStatements(env,tags,owner);if(statements.length)await getDb(env).batch(statements)}
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
