@@ -27,7 +27,7 @@ Chrome / Edge 可安装网页应用；Android 用 Chrome，iPhone / iPad 用 Saf
 1. 安装 Node.js 22 或更新版本，完成后重新打开终端。连接包自动寻找安装路径；找不到环境时安装标准 Node.js。
 2. Codex：运行 npm install -g @openai/codex，再运行 codex login，用自己的 ChatGPT 账号登录。
 3. Gemini：运行 npm install -g @google/gemini-cli，再运行 gemini，选择 Login with Google。完成后退出 CLI。企业或学校账号要求以 Google 为准。
-4. 下载 local-connector.zip 并完整解压。Windows 双击 start-codex.cmd；macOS / Linux 在解压目录运行 sh start.sh。
+4. 下载 local-connector.zip 并完整解压。Windows 双击 start-local-models.cmd（也可用 start-codex.cmd / start-gemini.cmd）；macOS / Linux 在解压目录运行 sh start.sh。
 5. 保持连接程序运行，打开 http://127.0.0.1:4379/，复制本次连接码。在网站模型设置粘贴并连接，允许浏览器访问本地网络。
 6. 选择本机 Codex 或本机 Gemini，查看安装与登录状态，选择模型和推理强度。上传或详情分析时也可以临时选择模型。下面的 API 字段是可选项。
 
@@ -99,3 +99,7 @@ AI_CONFIG_KEY 是 32 字节 base64 部署秘密，用于模型密钥加密和密
     node scripts/package-release.mjs
 
 release/ 被 Git 忽略。源码包和连接包不包含实际 .env、数据库备份、用户原图、CLI 登录文件、会话凭据或配对码。
+
+## 本次修正
+
+本机 Codex / Gemini 上传自动命名不要求配置 API。上传界面恢复手动添加标签：选择父标签并输入子标签，Enter / 添加均可，尚未点击添加的输入在提交时也会保存。本次上传共用，详情可逐张修改；模型分析保留手动标签。通用连接包与在线指引都包含 Gemini 安装、Google 登录、来源选择与配对步骤。
