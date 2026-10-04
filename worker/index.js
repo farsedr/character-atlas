@@ -186,6 +186,7 @@ async function handleApi(request,env,url){
  const user=await sessionUser(request,env);if(!user)throw new HttpError(401,"请登录拾光图鉴");const owner=user.id;
  await migrateLegacy(env);
  if(url.pathname==="/api/library"&&request.method==="GET"){
+  await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name))",owner).run();
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
   const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,roles:rows.results.filter(r=>!r.deleted_at).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results,analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
