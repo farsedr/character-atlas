@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "db:generate": "drizzle-kit generate",
-    "test": "node scripts/smoke.mjs && node scripts/ui-smoke.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs",
     "preview": "node scripts/preview.mjs"
   },
   "dependencies": {

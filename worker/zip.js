@@ -1,9 +1,10 @@
 const ZIP_CRC_TABLE=Uint32Array.from({length:256},(_,n)=>{let c=n;for(let i=0;i<8;i++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0});
 function zipRecord(size,fields){const a=new Uint8Array(size),v=new DataView(a.buffer);for(const [offset,width,value] of fields)width===2?v.setUint16(offset,value,true):v.setUint32(offset,value,true);return a}
 async function* archiveOriginals(env,rows){
- const central=[];let offset=0;
+ const central=[],usedNames=new Set();let offset=0;
  for(const row of rows){
-  const name=new TextEncoder().encode(bodyRole(row).id+"_"+row.filename.normalize("NFKC").replace(/[\\/:*?"<>|\x00-\x1f]/g,"_").slice(0,200)),d=new Date(row.created_at),year=Math.max(1980,Math.min(2107,d.getUTCFullYear())),time=(d.getUTCHours()<<11)|(d.getUTCMinutes()<<5)|(d.getUTCSeconds()>>1),date=((year-1980)<<9)|((d.getUTCMonth()+1)<<5)|d.getUTCDate(),start=offset;
+  const base=downloadName(row),dot=base.lastIndexOf(".");let filename=base,index=2;while(usedNames.has(filename.normalize("NFKC").toLowerCase()))filename=base.slice(0,dot)+" ("+(index++)+ ")"+base.slice(dot);usedNames.add(filename.normalize("NFKC").toLowerCase());
+  const name=new TextEncoder().encode(filename),d=new Date(row.created_at),year=Math.max(1980,Math.min(2107,d.getUTCFullYear())),time=(d.getUTCHours()<<11)|(d.getUTCMinutes()<<5)|(d.getUTCSeconds()>>1),date=((year-1980)<<9)|((d.getUTCMonth()+1)<<5)|d.getUTCDate(),start=offset;
   const object=await bucket(env).get(row.original_key);if(!object)throw new Error("Source image missing");
   const header=zipRecord(30,[[0,4,0x04034b50],[4,2,20],[6,2,0x808],[10,2,time],[12,2,date],[26,2,name.length]]);yield header;yield name;offset+=header.length+name.length;
   let crc=0xffffffff,length=0;
