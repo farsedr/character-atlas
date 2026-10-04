@@ -1,6 +1,6 @@
 "use strict";
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const state={user:null,roles:[],labels:[],projects:[],recycle:[],view:"library",filters:{},filtersExpanded:false,selected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
+const state={user:null,roles:[],labels:[],projects:[],recycle:[],view:"library",filters:{},filtersExpanded:false,selected:new Set(),recycleSelected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
 async function api(path,options={}){
  const r=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...options.headers}});
  let b;try{b=await r.json()}catch{throw new Error("服务暂不可用，请稍后重试")}
@@ -9,7 +9,7 @@ async function api(path,options={}){
 const post=(path,b)=>api(path,{method:"POST",body:JSON.stringify(b)});
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div>'+body;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
-function showAuth(){closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
+function showAuth(){closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
  $("#nameLabel").hidden=mode!=="register";$("#confirmLabel").hidden=mode==="login";$("#recoveryLabel").hidden=mode!=="recover";
@@ -35,6 +35,7 @@ async function refresh(silent=false){
  if(!state.user)return;try{
  const r=await api("/api/library");Object.assign(state,{roles:r.roles,labels:r.labels,projects:r.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
  const valid=new Set(state.roles.map(r=>r.identity));for(const id of state.selected)if(!valid.has(id))state.selected.delete(id);
+ const recycled=new Set(state.recycle.map(r=>r.identity));for(const id of state.recycleSelected)if(!recycled.has(id))state.recycleSelected.delete(id);
  render();if(r.migrationPending)setTimeout(()=>refresh(true),1000);if(!silent)toast(r.migrationPending?"正在同步现有素材，请稍候…":"已同步云端数据");
  }catch(e){if(!silent)toast(e.message)}
 }
@@ -71,7 +72,7 @@ function size(n){return n>=1048576?(n/1048576).toFixed(2)+" MB":(n/1024).toFixed
 function date(s){return new Date(s).toLocaleString("zh-CN",{hour12:false})}
 function selection(){const list=filtered();$("#selectedCount").textContent="已选 "+state.selected.size+" 项";$("#deleteButton").disabled=!state.selected.size;$("#downloadButton").disabled=!state.selected.size||!!state.downloadBusy;$("#selectAll").checked=!!list.length&&list.every(r=>state.selected.has(r.identity))}
 function card(r,recycle=false){
- const html='<article class="card '+(state.selected.has(r.identity)?"selected":"")+'"><input type="checkbox" class="select-card" data-select="'+r.identity+'" '+(state.selected.has(r.identity)?"checked":"")+' aria-label="选择'+esc(r.name)+'"><img class="cover" src="'+esc(r.imageUrl)+'" loading="lazy" decoding="async" alt="'+esc(r.name)+'" data-detail="'+r.identity+'"><div class="card-body"><span class="card-id">'+r.id+'</span><h3 title="'+esc(r.name)+'" data-detail="'+r.identity+'">'+esc(r.name)+'</h3><p class="card-description">'+esc(r.description||"等待一份关于它的描述。")+'</p><div class="chips">'+r.tags.slice(0,8).map(t=>'<span class="chip" title="'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name||"")+'">'+esc(t.name)+'</span>').join("")+'</div><div class="card-meta"><span>'+esc(r.projectName)+'</span><span>'+size(r.size)+'</span></div></div></article>';return recycle?html.replace(/<input[^>]*class="select-card"[^>]*>/,'').replace('</div></article>','<button data-restore="'+esc(r.identity)+'">恢复素材</button></div></article>'):html;
+ const html='<article class="card '+(state.selected.has(r.identity)?"selected":"")+'"><input type="checkbox" class="select-card" data-select="'+r.identity+'" '+(state.selected.has(r.identity)?"checked":"")+' aria-label="选择'+esc(r.name)+'"><img class="cover" src="'+esc(r.imageUrl)+'" loading="lazy" decoding="async" alt="'+esc(r.name)+'" data-detail="'+r.identity+'"><div class="card-body"><span class="card-id">'+r.id+'</span><h3 title="'+esc(r.name)+'" data-detail="'+r.identity+'">'+esc(r.name)+'</h3><p class="card-description">'+esc(r.description||"等待一份关于它的描述。")+'</p><div class="chips">'+r.tags.slice(0,8).map(t=>'<span class="chip" title="'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name||"")+'">'+esc(t.name)+'</span>').join("")+'</div><div class="card-meta"><span>'+esc(r.projectName)+'</span><span>'+size(r.size)+'</span></div></div></article>';return recycle?html.replace('data-select="'+r.identity+'"','data-recycle-select="'+r.identity+'"').replace('class="card '+(state.selected.has(r.identity)?"selected":"")+'"','class="card '+(state.recycleSelected.has(r.identity)?"selected":"")+'"').replace(' '+(state.selected.has(r.identity)?"checked":"")+' aria-label',' '+(state.recycleSelected.has(r.identity)?"checked":"")+' aria-label').replace('</div></article>','<button data-restore="'+esc(r.identity)+'" '+(r.purgePending?'disabled':'')+'>恢复素材</button><button class="danger" data-purge="'+esc(r.identity)+'">删除素材</button></div></article>'):html;
 }
 function render(){
  renderFilters();$("#navCount").textContent=state.roles.length;
@@ -85,7 +86,7 @@ function render(){
 }
 function renderAuxiliary(){
  if(state.view==="recycle"){
-  $("#content").innerHTML=state.recycle.length?'<div class="grid">'+state.recycle.map(r=>card(r,true)).join("")+'</div>':'<div class="empty">回收站为空</div>';
+  $("#content").innerHTML='<div class="selection-bar"><label class="check"><input id="recycleAll" type="checkbox">全选回收站</label><span id="recycleCount"></span><button id="purgeSelected" class="danger">删除选中</button><button id="clearRecycle" class="danger">清空回收站</button></div>'+(state.recycle.length?'<div class="grid">'+state.recycle.map(r=>card(r,true)).join("")+'</div>':'<div class="empty">回收站为空</div>');recycleSelection();$("#recycleAll").onchange=e=>{for(const r of state.recycle)e.target.checked?state.recycleSelected.add(r.identity):state.recycleSelected.delete(r.identity);renderAuxiliary()};$("#purgeSelected").onclick=()=>purgeDialog(state.recycle.filter(r=>state.recycleSelected.has(r.identity)));$("#clearRecycle").onclick=()=>purgeDialog([...state.recycle],true);
  }else if(state.view==="taxonomy"){
   $("#content").innerHTML=ATLAS.taxonomy.map(d=>{
    const tags=state.labels.filter(t=>t.dimension===d.id),groups=[...new Set(tags.map(t=>t.groupName||"新增标签"))];
@@ -95,6 +96,8 @@ function renderAuxiliary(){
   $("#content").innerHTML='<div class="dialog-actions"><button id="newProject">＋ 新建灵感集</button></div><div class="project-grid">'+allProjects().map(p=>'<section class="panel project-card"><h3>'+esc(p)+'</h3><span class="muted small">灵感集</span><strong>'+state.roles.filter(r=>r.projectName===p).length+'</strong><button data-project="'+esc(p)+'">浏览素材</button></section>').join("")+'</div>';$("#newProject").onclick=()=>newProject();
  }
 }
+function recycleSelection(){const count=state.recycleSelected.size;$("#recycleCount").textContent="已选 "+count+" 项";$("#purgeSelected").disabled=!count;$("#clearRecycle").disabled=!state.recycle.length;$("#recycleAll").checked=!!state.recycle.length&&state.recycle.every(r=>state.recycleSelected.has(r.identity));$("#recycleAll").indeterminate=count>0&&count<state.recycle.length}
+function purgeDialog(roles,clear=false){if(!roles.length)return;const items=roles.map(r=>({identity:r.identity,revision:r.revision}));modal(clear?"清空回收站":"永久删除素材",'<p>将永久删除这 '+items.length+' 份素材及其原文件，删除后无法恢复。</p><p id="purgeError" class="error"></p><div class="dialog-actions"><button id="cancelPurge">取消</button><button id="confirmPurge" class="danger">确认永久删除</button></div>');$("#cancelPurge").onclick=()=>$("#modal").close();$("#confirmPurge").onclick=async()=>{const button=$("#confirmPurge");button.disabled=true;$("#closeModal").disabled=true;try{let deleted=0,failed=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/purge",{items:items.slice(i,i+25)});deleted+=r.deleted;failed+=r.failed||0}await refresh(true);$("#modal").close();toast("已永久删除 "+deleted+" 项"+(failed?"；部分文件删除失败，可重新选择重试":deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){await refresh(true);$("#purgeError").textContent=e.message;button.disabled=false}finally{if($("#closeModal"))$("#closeModal").disabled=false}}}
 function roleByIdentity(id){return [...state.roles,...state.recycle].find(r=>r.identity===id)}
 function assetPath(r,action=""){return"/api/assets/"+r.id+(action?"/"+action:"")+"?v="+encodeURIComponent(r.identity)}
 function details(r){
@@ -119,7 +122,9 @@ function editRole(r){
 function tagDialog(dimension){modal("添加子标签",'<form id="tagForm"><label>输入或选择子标签<input id="tagName" name="name" list="tagNames" maxlength="40" required></label><datalist id="tagNames">'+labelOptions(dimension).map(n=>'<option value="'+esc(n)+'">').join("")+'</datalist><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary">保存</button></div></form>');$("#tagForm").onsubmit=async e=>{e.preventDefault();try{await post("/api/tags",{dimension,name:$("#tagName").value});await refresh(true);$("#modal").close();toast("子标签已保存")}catch(error){$("#formError").textContent=error.message}}}
 function newProject(){modal("新建灵感集",'<form id="projectForm"><label>灵感集<input name="name" maxlength="40" required></label><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary">保存</button></div></form>');$("#projectForm").onsubmit=async e=>{e.preventDefault();try{await post("/api/projects",{name:e.currentTarget.elements.name.value});await refresh(true);$("#modal").close();toast("灵感集已创建")}catch(error){$("#formError").textContent=error.message}}}
 $("#content").onclick=async e=>{
- const el=e.target.closest("[data-detail],[data-select],[data-page],[data-restore],[data-add-tag],[data-project]");if(!el)return;
+ const el=e.target.closest("[data-detail],[data-select],[data-recycle-select],[data-purge],[data-page],[data-restore],[data-add-tag],[data-project]");if(!el)return;
+ if(el.dataset.recycleSelect){el.checked?state.recycleSelected.add(el.dataset.recycleSelect):state.recycleSelected.delete(el.dataset.recycleSelect);el.closest(".card").classList.toggle("selected",el.checked);recycleSelection()}
+ if(el.dataset.purge)purgeDialog([roleByIdentity(el.dataset.purge)]);
  if(el.dataset.restore){const r=roleByIdentity(el.dataset.restore);el.disabled=true;try{await post("/api/assets/restore",{identity:r.identity,revision:r.revision});await refresh(true);toast("素材已恢复")}catch(error){toast(error.message);el.disabled=false}}
  if(el.dataset.addTag)tagDialog(el.dataset.addTag);
  if(el.dataset.project){state.view="library";$("#projectFilter").value=el.dataset.project;state.page=1;render()}

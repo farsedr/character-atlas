@@ -35,7 +35,7 @@ async function persistLabels(env,tags,owner){const statements=labelStatements(en
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
  const id=publicId(row.display_number);
- return {id,identity:row.id,name:r.name,description:r.description||"",tags,classification:classify(tags),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
+ return {id,identity:row.id,name:r.name,description:r.description||"",tags,classification:classify(tags),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
 }
 function classify(tags){return Object.fromEntries(dimensions().map(d=>[d,tags.find(t=>t.dimension===d)?.name||"未标注"]))}
 function signature(bytes){if(bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71&&bytes[4]===13&&bytes[5]===10&&bytes[6]===26&&bytes[7]===10)return "image/png";if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return "image/jpeg";if(String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP")return "image/webp";return ""}
@@ -202,9 +202,14 @@ async function handleApi(request,env,url){
   const result=await getDb(env).batch(b.items.map(i=>query(env,"UPDATE atlas_assets SET deleted_at=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL",new Date().toISOString(),i.identity,owner,i.revision)));
   const changed=result.reduce((n,r)=>n+(r.meta?.changes||0),0);return json({ok:true,deleted:changed});
  }
+ if(url.pathname==="/api/assets/purge"&&request.method==="POST"){
+ const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25份素材");for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除参数无效");let deleted=0,failed=0;
+ for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;try{for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0}catch{failed++}}
+ return json({deleted,failed});
+ }
  if(url.pathname==="/api/assets/restore"&&request.method==="POST"){
   const b=await request.json();if(typeof b.identity!=="string"||!Number.isInteger(b.revision))throw new HttpError(400,"恢复请求无效");
-  const r=await query(env,"UPDATE atlas_assets SET display_number=("+gapSQL+"),deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND ("+gapSQL+") IS NOT NULL RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
+  const r=await query(env,"UPDATE atlas_assets SET display_number=("+gapSQL+"),deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND ("+gapSQL+") IS NOT NULL RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
   if(!r)throw new HttpError(409,"素材已变化或编号用尽");return json({role:bodyRole(r)});
  }
  const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5})(?:\/(preview|download|analyze))?$/);
