@@ -9,74 +9,62 @@ async function api(path,options={}){
 const post=(path,b)=>api(path,{method:"POST",body:JSON.stringify(b)});
 
 
-const codexLocal={token:"",connected:false,model:"gpt-6-luna",reasoning:"low",models:[]};
-const effortNames={low:"低",medium:"中",high:"高",xhigh:"极高",max:"最高"};
-const canAnalyze=()=>codexLocal.connected||state.analysisEnabled;
+const codexLocal={token:"",connected:false,model:"gpt-6-luna",reasoning:"low",provider:"codex",providers:{},models:[]};
+const effortNames={default:"模型默认",low:"低",medium:"中",high:"高",xhigh:"极高",max:"最高"};
+const canAnalyze=()=>codexLocal.connected&&codexLocal.models.length>0||state.analysisEnabled;
 const codexPreferenceKey=()=>"atlas-codex-options:"+state.user?.id;
 function loadCodexPreference(){
- codexLocal.model="gpt-6-luna";codexLocal.reasoning="low";
- try{const value=JSON.parse(localStorage.getItem(codexPreferenceKey())||"null");if(value){codexLocal.model=value.model;codexLocal.reasoning=value.reasoning}}catch{}
+ codexLocal.model="gpt-6-luna";codexLocal.reasoning="low";codexLocal.provider="codex";
+ try{const value=JSON.parse(localStorage.getItem(codexPreferenceKey())||"null");if(value){codexLocal.model=value.model;codexLocal.reasoning=value.reasoning;codexLocal.provider=value.provider||"codex"}}catch{}
 }
-function saveCodexPreference(){try{localStorage.setItem(codexPreferenceKey(),JSON.stringify({model:codexLocal.model,reasoning:codexLocal.reasoning}))}catch{}}
+function saveCodexPreference(){try{localStorage.setItem(codexPreferenceKey(),JSON.stringify({model:codexLocal.model,reasoning:codexLocal.reasoning,provider:codexLocal.provider}))}catch{}}
 async function codexRequest(action,options={}){
- let response;try{response=await fetch("http://127.0.0.1:4379/"+action,{...options,headers:{"X-Atlas-Token":codexLocal.token,...options.headers},signal:AbortSignal.timeout(action==="analyze"?250000:5000)})}catch{throw new Error("无法连接本机 Codex，请启动连接程序，并允许浏览器访问本地网络。")}
- const data=await response.json();if(!response.ok)throw new Error(data.error||"本机 Codex 请求失败");return data;
+ let response;try{response=await fetch("http://127.0.0.1:4379/"+action,{...options,headers:{"X-Atlas-Token":codexLocal.token,...options.headers},signal:AbortSignal.timeout(action==="analyze"?250000:10000)})}catch{throw new Error("无法连接本机模型，请启动连接程序，并允许浏览器访问本地网络。")}
+ const data=await response.json();if(!response.ok)throw new Error(data.error||"本机模型请求失败");return data;
 }
-async function analyzeAsset(role,choice=codexLocal.connected?"codex:"+codexLocal.model:"api"){
+async function analyzeAsset(role,choice=codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api"){
  if(choice==="api"){if(!state.analysisEnabled)throw new Error("请先配置 API 模型");return post(assetPath(role,"analyze"),{})}
- if(!codexLocal.connected)throw new Error("请先连接本机 Codex");
- const model=choice.slice(6),supported=codexLocal.models.find(m=>m.id===model);if(!supported)throw new Error("请选择可用的本机模型");
+ if(!codexLocal.connected)throw new Error("请先连接本机模型");
+ const model=choice.slice(choice.indexOf(":")+1),supported=codexLocal.models.find(m=>m.id===model);if(!supported)throw new Error("请选择可用的本机模型");
  const options={model,reasoning:supported.efforts.includes(codexLocal.reasoning)?codexLocal.reasoning:(supported.efforts.includes("low")?"low":supported.efforts[0])};
  const response=await fetch(role.imageUrl,{credentials:"same-origin"});
  if(!response.ok)throw new Error("无法读取预览图");
- const result=await codexRequest("analyze",{method:"POST",headers:{"Content-Type":"image/jpeg","X-Atlas-Model":options.model,"X-Atlas-Reasoning":options.reasoning},body:await response.blob()});
+ const bytes=new Uint8Array(await response.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const installed=await api("/api/analysis-skill");const result=await codexRequest("analyze",{method:"POST",headers:{"Content-Type":"application/json","X-Atlas-Model":options.model,"X-Atlas-Reasoning":options.reasoning},body:JSON.stringify({image:btoa(binary),skill:installed.skill?.content||""})});
  return post(assetPath(role,"analysis-result"),{identity:role.identity,revision:role.revision,result:result.result,model:result.model,reasoning:result.reasoning});
 }
 
 function analysisModelSelect(id){
- const choices=codexLocal.connected?codexLocal.models.map(m=>({value:"codex:"+m.id,name:"本机 Codex · "+m.name})):[];
+ const choices=codexLocal.connected?codexLocal.models.map(m=>({value:(m.provider||"codex")+":"+m.id,name:"本机 "+(m.provider==="gemini"?"Gemini":"Codex")+" · "+m.name})):[];
  if(state.analysisEnabled)choices.push({value:"api",name:"API · "+(state.modelConfig?.model||"已配置模型")});
  if(!choices.length)return "";
- const current=codexLocal.connected?"codex:"+codexLocal.model:"api";
+ const current=codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api";
  return '<label>分析模型<select id="'+id+'">'+choices.map(c=>'<option value="'+esc(c.value)+'" '+(c.value===current?"selected":"")+'>'+esc(c.name)+'</option>').join("")+'</select></label>';
 }
 
 function codexControls(){
- return '<section class="codex-settings"><h3>本机 Codex</h3><p class="note">默认 GPT-6 Luna · 低推理强度 · 标准速度。使用本机 ChatGPT 登录，消耗套餐额度，无需 API 密钥。连接后可自行选择模型，较强模型或较高推理强度可能消耗更多额度。</p><p id="codexStatus">'+(codexLocal.connected?"已连接":"尚未连接")+'</p><div class="row"><label>模型<select id="codexModel" disabled><option>请先连接 Codex</option></select></label><label>推理强度<select id="codexReasoning" disabled><option>低</option></select></label></div><p class="form-note">选择立即生效，并在本设备记住。不会自动升级或切换其他模型。</p><label>连接码<input id="codexPairCode" type="password" autocomplete="off" placeholder="从本机连接页面复制"></label><div class="dialog-actions"><a href="http://127.0.0.1:4379/" target="_blank" rel="noreferrer">打开本机连接页</a><button type="button" id="connectCodex">连接 Codex</button><button type="button" id="disconnectCodex">断开连接</button><button type="button" id="resetCodexOptions">重置默认</button></div><p id="codexError" class="error"></p></section><hr>';
+ return '<section class="codex-settings"><h3>本机模型</h3><p class="note">本机 Codex 使用 ChatGPT 登录；本机 Gemini 使用 Google 登录，无需填写 API 密钥。每位用户在自己的电脑上安装并配对。默认选择轻量模型，实际可用性和额度以账号为准。</p><div class="dialog-actions"><a href="/share/local-connector.zip" download>下载通用连接包</a><a href="/connection-guide.html" target="_blank" rel="noreferrer">安装与连接指引</a></div><p id="codexStatus"></p><label>本机来源<select id="localProvider"><option value="codex">本机 Codex</option><option value="gemini">本机 Gemini</option></select></label><div class="row"><label>模型<select id="codexModel"></select></label><label>推理强度<select id="codexReasoning"></select></label></div><p class="form-note">选择在本设备保存。分析时也可以单独选择模型；不会因失败而自动升级模型。</p><label>连接码<input id="codexPairCode" type="password" autocomplete="off" placeholder="从本机连接页面复制"></label><div class="dialog-actions"><a href="http://127.0.0.1:4379/" target="_blank" rel="noreferrer">打开本机连接页</a><button type="button" id="connectCodex">连接</button><button type="button" id="disconnectCodex">断开连接</button><button type="button" id="resetCodexOptions">重置默认</button></div><p id="codexError" class="error"></p></section><hr>';
 }
+function chooseLocalDefault(){const candidates=codexLocal.models.filter(m=>(m.provider||"codex")===codexLocal.provider);const preferred=codexLocal.provider==="gemini"?"gemini-2.5-flash-lite":"gpt-6-luna";const found=candidates.find(m=>m.id===preferred)||candidates[0];if(found){codexLocal.model=found.id;codexLocal.reasoning=found.efforts.includes("low")?"low":found.efforts[0]}}
 function renderCodexChoices(){
- const model=$("#codexModel"),effort=$("#codexReasoning");if(!model||!effort)return;
- model.disabled=effort.disabled=!codexLocal.connected;
- if(!codexLocal.connected){model.innerHTML='<option>请先连接 Codex</option>';effort.innerHTML='<option>低</option>';$("#codexStatus").textContent="尚未连接";return}
- model.innerHTML=codexLocal.models.map(m=>'<option value="'+esc(m.id)+'">'+esc(m.name)+(m.id==="gpt-6-luna"?"（默认）":"")+'</option>').join("");model.value=codexLocal.model;
- const selected=codexLocal.models.find(m=>m.id===codexLocal.model);
- effort.innerHTML=(selected?.efforts||[]).map(e=>'<option value="'+esc(e)+'">'+esc(effortNames[e]||e)+'</option>').join("");effort.value=codexLocal.reasoning;
- $("#codexStatus").textContent="已连接 · "+codexLocal.model+" · "+effortNames[codexLocal.reasoning]+"推理强度";
+ const model=$("#codexModel"),effort=$("#codexReasoning");if(!model)return;
+ $("#localProvider").value=codexLocal.provider;const candidates=codexLocal.models.filter(m=>(m.provider||"codex")===codexLocal.provider);model.disabled=effort.disabled=!codexLocal.connected||!candidates.length;
+ model.innerHTML=candidates.length?candidates.map(m=>'<option value="'+esc(m.id)+'">'+esc(m.name)+'</option>').join(""):'<option>请安装并登录所选 CLI 后连接</option>';model.value=codexLocal.model;
+ const selected=candidates.find(m=>m.id===codexLocal.model);effort.innerHTML=(selected?.efforts||["default"]).map(e=>'<option value="'+esc(e)+'">'+esc(effortNames[e]||e)+'</option>').join("");effort.value=codexLocal.reasoning;
+ const status=codexLocal.providers[codexLocal.provider];$("#codexStatus").textContent=(codexLocal.connected?"连接程序已配对":"尚未连接")+(status?" · "+status.status:"")+(selected?" · "+selected.id:"");
 }
 function bindCodexControls(){
- renderCodexChoices();
+ renderCodexChoices();$("#localProvider").onchange=e=>{codexLocal.provider=e.target.value;chooseLocalDefault();saveCodexPreference();renderCodexChoices()};
  $("#codexModel").onchange=e=>{codexLocal.model=e.target.value;const levels=codexLocal.models.find(m=>m.id===codexLocal.model)?.efforts||[];if(!levels.includes(codexLocal.reasoning))codexLocal.reasoning=levels.includes("low")?"low":levels[0];saveCodexPreference();renderCodexChoices()};
- $("#codexReasoning").onchange=e=>{codexLocal.reasoning=e.target.value;saveCodexPreference();renderCodexChoices()};
- $("#connectCodex").onclick=async()=>{
-  const token=$("#codexPairCode").value.trim();
-  if(!/^[a-f0-9]{48}$/.test(token)){$("#codexError").textContent="请输入本机连接页显示的完整连接码";return}
-  const button=$("#connectCodex");button.disabled=true;codexLocal.token=token;codexLocal.connected=false;
-  try{
-   const info=await codexRequest("health");if(!Array.isArray(info.models)||!info.models.length)throw new Error("本机连接程序需要更新，请重启连接程序后重新配对");
-   codexLocal.models=info.models.filter(m=>typeof m.id==="string"&&typeof m.name==="string"&&Array.isArray(m.efforts)&&m.efforts.length);
-   const selected=codexLocal.models.find(m=>m.id===codexLocal.model);
-   if(!selected)throw new Error("此前选择的模型不在本机列表，请点击下方重置默认后重新连接");
-   if(!selected.efforts.includes(codexLocal.reasoning))throw new Error("此前选择的推理强度不再支持，请重置默认后重新连接");
-   codexLocal.connected=true;$("#codexPairCode").value="";$("#codexError").textContent="";renderCodexChoices();toast("Codex 已连接，可选择模型和推理强度");
-  }catch(e){codexLocal.token="";codexLocal.connected=false;renderCodexChoices();$("#codexError").textContent=e.message}finally{button.disabled=false}
- };
- $("#disconnectCodex").onclick=()=>{codexLocal.token="";codexLocal.connected=false;$("#codexPairCode").value="";renderCodexChoices();toast("已断开本机 Codex")};
- $("#resetCodexOptions").onclick=()=>{codexLocal.model="gpt-6-luna";codexLocal.reasoning="low";saveCodexPreference();if(codexLocal.connected&&!codexLocal.models.some(m=>m.id==="gpt-6-luna")){codexLocal.connected=false;codexLocal.token=""}renderCodexChoices();$("#codexError").textContent=""};
+ $("#codexReasoning").onchange=e=>{codexLocal.reasoning=e.target.value;saveCodexPreference()};
+ $("#connectCodex").onclick=async()=>{const token=$("#codexPairCode").value.trim();if(!/^[a-f0-9]{48}$/.test(token)){$("#codexError").textContent="请输入本机连接页面显示的完整连接码";return}const button=$("#connectCodex");button.disabled=true;codexLocal.token=token;try{const info=await codexRequest("health");if(info.version!==2)throw Error("请下载新版通用连接包，并重新启动");codexLocal.models=(info.models||[]).filter(m=>typeof m.id==="string"&&Array.isArray(m.efforts)&&m.efforts.length);codexLocal.providers=info.providers||{};if(!codexLocal.models.some(m=>m.id===codexLocal.model&&(m.provider||"codex")===codexLocal.provider))chooseLocalDefault();codexLocal.connected=true;$("#codexPairCode").value="";$("#codexError").textContent="";renderCodexChoices();toast("本机连接已配对，请检查所选 CLI 的登录状态")}catch(e){codexLocal.token="";codexLocal.connected=false;renderCodexChoices();$("#codexError").textContent=e.message}finally{button.disabled=false}};
+ $("#disconnectCodex").onclick=()=>{codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};renderCodexChoices();toast("已断开本机连接")};
+ $("#resetCodexOptions").onclick=()=>{chooseLocalDefault();saveCodexPreference();renderCodexChoices()};
 }
-
+function skillControls(){return '<section><h3>分析 Skill</h3><p id="skillStatus">正在读取…</p><p class="form-note">安装自己的 SKILL.md，补充分析细节和标签规则。固定父标签、输出格式和视觉证据约束始终保留；适用于本机模型与 API 模型。</p><input id="skillFile" type="file" accept=".md,text/markdown"><div class="dialog-actions"><a href="/share/analysis-SKILL.md" download>下载 Skill 模板</a><button type="button" id="installSkill">安装 Skill</button><button type="button" id="resetSkill">恢复内置 Skill</button></div><p id="skillError" class="error"></p></section><hr>'}
+async function bindSkillControls(){const render=async()=>{const result=await api("/api/analysis-skill");$("#skillStatus").textContent=result.skill?"已安装："+result.skill.name:"使用内置 24 维分析 Skill"};try{await render()}catch(e){$("#skillError").textContent=e.message}$("#installSkill").onclick=async()=>{try{const file=$("#skillFile").files[0];if(!file)throw Error("请选择 SKILL.md 文件");if(file.size>96000)throw Error("Skill 文件过大");await api("/api/analysis-skill",{method:"PUT",body:JSON.stringify({content:await file.text()})});await render();toast("分析 Skill 已安装")}catch(e){$("#skillError").textContent=e.message}};$("#resetSkill").onclick=async()=>{try{await api("/api/analysis-skill",{method:"DELETE"});await render();toast("已恢复内置 Skill")}catch(e){$("#skillError").textContent=e.message}}}
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div>'+body;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
-function showAuth(){codexLocal.token="";codexLocal.connected=false;closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
+function showAuth(){codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
  $("#nameLabel").hidden=mode!=="register";$("#confirmLabel").hidden=mode==="login";$("#recoveryLabel").hidden=mode!=="recover";
@@ -165,8 +153,9 @@ function recycleSelection(){const count=state.recycleSelected.size;$("#recycleCo
 function purgeDialog(roles,clear=false){if(!roles.length)return;const items=roles.map(r=>({identity:r.identity,revision:r.revision}));modal(clear?"清空回收站":"永久删除素材",'<p>将永久删除这 '+items.length+' 份素材及其原文件，删除后无法恢复。</p><p id="purgeError" class="error"></p><div class="dialog-actions"><button id="cancelPurge">取消</button><button id="confirmPurge" class="danger">确认永久删除</button></div>');$("#cancelPurge").onclick=()=>$("#modal").close();$("#confirmPurge").onclick=async()=>{const button=$("#confirmPurge");button.disabled=true;$("#closeModal").disabled=true;try{let deleted=0,failed=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/purge",{items:items.slice(i,i+25)});deleted+=r.deleted;failed+=r.failed||0}await refresh(true);$("#modal").close();toast("已永久删除 "+deleted+" 项"+(failed?"；部分文件删除失败，可重新选择重试":deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){await refresh(true);$("#purgeError").textContent=e.message;button.disabled=false}finally{if($("#closeModal"))$("#closeModal").disabled=false}}}
 function roleByIdentity(id){return [...state.roles,...state.recycle].find(r=>r.identity===id)}
 function assetPath(r,action=""){return"/api/assets/"+r.id+(action?"/"+action:"")+"?v="+encodeURIComponent(r.identity)}
+function groupedTags(tags){return '<dl class="analysis-tags">'+ATLAS.taxonomy.map(d=>{const names=[...new Set(tags.filter(t=>t.dimension===d.id).map(t=>t.name))];return names.length?'<div><dt>'+esc(d.name)+'</dt><dd>'+names.map(n=>'<span class="chip">'+esc(n)+'</span>').join("")+'</dd></div>':""}).join("")+'</dl>'}
 function details(r){
- modal(r.name,'<div class="detail-grid"><div><img class="detail-image" src="'+esc(r.imageUrl)+'" alt="'+esc(r.name)+'"></div><div><p class="eyebrow">'+r.id+'</p><p>'+esc(r.description||"尚未添加描述")+'</p><div class="chips">'+r.tags.map(t=>'<span class="chip">'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name)+': '+esc(t.name)+'</span>').join("")+'</div><dl class="info-grid">'+[["源文件",r.filename],["源文件大小",size(r.size)],["分辨率",resolution(r)],["比例",aspect(r)],["上传时间",date(r.createdAt)],["灵感集",r.projectName]].map(([n,v])=>'<div><dt>'+n+'</dt><dd>'+esc(v)+'</dd></div>').join("")+'</dl>'+(r.deletedAt?"":analysisModelSelect("detailAnalysisModel"))+'<h3>生图提示词</h3><p class="prompt">'+esc(r.generationPrompt||"未填写，可手动添加")+'</p><div class="dialog-actions"><a href="'+esc(r.downloadUrl)+'" download>下载原图</a>'+(r.deletedAt?'':'<button id="editRole">编辑</button><button id="analyzeRole" '+(!canAnalyze()?"disabled":"")+'>分析标签</button>')+'</div><p class="muted small">模型仅添加固定类别下的子标签。手动标签和生图提示词会保留。</p><p id="detailError" class="error"></p></div></div>');
+ modal(r.name,'<div class="detail-grid"><div><img class="detail-image" src="'+esc(r.imageUrl)+'" alt="'+esc(r.name)+'"></div><div><p class="eyebrow">'+r.id+'</p><p>'+esc(r.description||"尚未添加描述")+'</p>'+groupedTags(r.tags)+'<dl class="info-grid">'+[["源文件",r.filename],["源文件大小",size(r.size)],["分辨率",resolution(r)],["比例",aspect(r)],["上传时间",date(r.createdAt)],["灵感集",r.projectName]].map(([n,v])=>'<div><dt>'+n+'</dt><dd>'+esc(v)+'</dd></div>').join("")+'</dl>'+(r.deletedAt?"":analysisModelSelect("detailAnalysisModel"))+'<h3>提示词</h3><p class="prompt">'+esc(r.generationPrompt||"未填写；分析图片后自动生成中文提示词")+'</p><div class="dialog-actions"><a href="'+esc(r.downloadUrl)+'" download>下载原图</a>'+(r.deletedAt?'':'<button id="editRole">编辑</button><button id="analyzeRole" '+(!canAnalyze()?"disabled":"")+'>分析标签</button>')+'</div><p class="muted small">模型仅添加固定类别下的子标签。子标签由模型根据图片生成；手动标签和已填写的提示词会保留。</p><p id="detailError" class="error"></p></div></div>');
  if(!r.deletedAt){$("#editRole").onclick=()=>editRole(r);$("#analyzeRole").onclick=async()=>{const b=$("#analyzeRole");b.disabled=true;b.textContent="正在分析…";try{const result=await analyzeAsset(r,$("#detailAnalysisModel")?.value);await refresh(true);details(result.role);toast("分析完成，已添加 "+result.acceptedCount+" 个标签")}catch(e){$("#detailError").textContent=e.message;b.disabled=false;b.textContent="重试分析"}}}
 }
 function projectList(){return '<datalist id="projectNames">'+allProjects().map(n=>'<option value="'+esc(n)+'">').join("")+'</datalist>'}
@@ -178,7 +167,7 @@ function wireTagOptions(){const update=()=>{
  };$("#tagDimension").onchange=update;update();$("#tagSuggestions").onclick=e=>{const b=e.target.closest("[data-suggest-tag]");if(b){$("#tagName").value=b.dataset.suggestTag;$("#addTag").click();update()}}}
 function editRole(r){
  state.editTags=r.tags.map(t=>({...t}));
- modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><label>灵感集<input name="projectName" list="projectNames" value="'+esc(r.projectName)+'" maxlength="40" required></label></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>生图提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">输入或选择子标签，按 Enter 或点击添加。直接保存也会收录输入的新标签。点击已有标签可移除。</p><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
+ modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><label>灵感集<input name="projectName" list="projectNames" value="'+esc(r.projectName)+'" maxlength="40" required></label></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">输入或选择子标签，按 Enter 或点击添加。直接保存也会收录输入的新标签。点击已有标签可移除。</p><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
  const draw=()=>{$("#editTags").innerHTML=state.editTags.map((t,i)=>'<button type="button" data-remove-tag="'+i+'">'+esc(t.name)+' ×</button>').join("");$("#editTags").querySelectorAll("button").forEach(b=>b.onclick=()=>{state.editTags.splice(Number(b.dataset.removeTag),1);draw()})};draw();
  const commitPendingTag=()=>{const t={dimension:$("#tagDimension").value,name:$("#tagName").value.normalize("NFKC").trim()};if(t.name&&!state.editTags.some(x=>x.dimension===t.dimension&&x.name.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g,"")===t.name.toLocaleLowerCase().replace(/\s+/g,""))){if(t.name.length>40||/[<>\x00-\x1f]/.test(t.name)){$("#formError").textContent="子标签为1至40个有效字符";return false}state.editTags.push(t);draw()}$("#tagName").value="";return true};
  $("#addTag").onclick=commitPendingTag;$("#tagName").onkeydown=e=>{if(e.key==="Enter"&&!e.isComposing){e.preventDefault();commitPendingTag()}};
@@ -217,7 +206,7 @@ async function preview(file){
 }
 function uploadDialog(){
  state.files=[];
- modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>选择图片，或选择整个文件夹。原文件保存到云端，登录其他设备后可下载。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>灵感集<input name="projectName" value="未分组" list="projectNames" maxlength="40" required></label><label>命名方式<select name="namingMode" id="namingMode"><option value="original">保留原文件名称</option><option value="custom">手动自定义命名</option><option value="ai" selected>模型自动命名</option></select></label></div>'+projectList()+'<div id="customNames" class="file-list" hidden></div><label>生图提示词（本次素材共用，可分别编辑）<textarea name="generationPrompt" maxlength="12000"></textarea></label>'+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" '+(!canAnalyze()?"disabled":"")+'>上传后自动分析并添加子标签</label><p class="form-note">自动命名需要连接本机 Codex 或配置视觉模型。分析失败时原图保留，可在详情中重试。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>上传到云端</button></div></form>');
+ modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>选择图片，或选择整个文件夹。原文件保存到云端，登录其他设备后可下载。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>灵感集<input name="projectName" value="未分组" list="projectNames" maxlength="40" required></label><label>命名方式<select name="namingMode" id="namingMode"><option value="original">保留原文件名称</option><option value="custom">手动自定义命名</option><option value="ai" selected>模型自动命名</option></select></label></div>'+projectList()+'<div id="customNames" class="file-list" hidden></div><label>提示词（本次素材共用，可分别编辑）<textarea name="generationPrompt" maxlength="12000"></textarea></label>'+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" '+(!canAnalyze()?"disabled":"")+'>上传后自动分析并添加子标签</label><p class="form-note">自动命名需要连接本机 Codex / 本机 Gemini 或配置视觉模型。分析失败时原图保留，可在详情中重试。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>上传到云端</button></div></form>');
  const choose=(files)=>{
   const supported=[...files].filter(f=>/\.(png|jpe?g|webp)$/i.test(f.name));state.files=supported.map(file=>({file,name:file.name.replace(/\.[^.]+$/,"")}));
   $("#fileList").textContent=state.files.length+" 张图片 · "+size(supported.reduce((n,f)=>n+f.size,0))+(files.length>supported.length?" · 已跳过 "+(files.length-supported.length)+" 个其他文件":"");
@@ -241,7 +230,7 @@ function uploadDialog(){
     if(entry.file.size>20*1048576)throw new Error("超过20MB");
     const f=new FormData();f.append("file",entry.file);f.append("preview",await preview(entry.file));f.append("projectName",fields.projectName);f.append("namingMode",mode);f.append("name",entry.name);f.append("generationPrompt",fields.generationPrompt||"");
     const result=await api("/api/assets",{method:"POST",body:f});ok++;
-    if(auto){try{await analyzeAsset(result.role)}catch(error){aiFailed++;console.warn("analysis failed for upload");$("#uploadError").textContent="最近一次分析错误："+error.message}}
+    if(auto){try{await analyzeAsset(result.role,analysisChoice)}catch(error){aiFailed++;console.warn("analysis failed for upload");$("#uploadError").textContent="最近一次分析错误："+error.message}}
    }catch(error){failed++;$("#uploadError").textContent="最近一次上传错误："+entry.file.name+" · "+error.message}
   }
   await refresh(true);$("#closeModal").disabled=false;
@@ -257,9 +246,9 @@ const presets={
 async function modelDialog(){
  try{
   const {config,available}=await api("/api/model-config"),c=config||{};
-  modal("模型设置",codexControls()+'<details id="apiModelSettings"><summary>API 模型配置（可选）</summary><p class="note">配置保存在你自己的账号中，跨设备同步。密钥在服务端加密保存，不会返回页面。请选择支持图片输入的视觉模型，费用由所选服务商收取。</p><form id="modelForm"><div class="row"><label>服务商<select name="provider" id="provider">'+Object.entries(presets).map(([id,p])=>'<option value="'+id+'" '+(id===(c.provider||"gemini")?"selected":"")+'>'+p.name+'</option>').join("")+'</select></label><label>接口格式<select name="protocol" id="protocol">'+[["openai","OpenAI Chat Completions"],["responses","OpenAI Responses"],["anthropic","Anthropic Messages"],["gemini","Gemini 原生"]].map(([id,name])=>'<option value="'+id+'">'+name+'</option>').join("")+'</select></label></div><label>服务地址<input type="url" name="baseUrl" id="baseUrl" value="'+esc(c.baseUrl||presets.gemini.base)+'"></label><label>视觉模型 ID<input name="model" value="'+esc(c.model||"")+'" placeholder="服务商实际支持的视觉模型名称" maxlength="160"></label><label>API 密钥<input name="apiKey" type="password" autocomplete="off" placeholder="'+(c.hasKey?"已保存；留空保留":"请输入你的密钥")+'"></label><p id="modelError" class="error"></p><div class="dialog-actions"><button type="button" id="removeConfig" class="danger">删除配置</button><button class="primary" '+(!available?"disabled":"")+'>保存 API 配置</button></div></form></details>');
+  modal("模型设置",codexControls()+skillControls()+'<details id="apiModelSettings"><summary>API 模型配置（可选）</summary><p class="note">配置保存在你自己的账号中，跨设备同步。密钥在服务端加密保存，不会返回页面。请选择支持图片输入的视觉模型，费用由所选服务商收取。</p><form id="modelForm"><div class="row"><label>服务商<select name="provider" id="provider">'+Object.entries(presets).map(([id,p])=>'<option value="'+id+'" '+(id===(c.provider||"gemini")?"selected":"")+'>'+p.name+'</option>').join("")+'</select></label><label>接口格式<select name="protocol" id="protocol">'+[["openai","OpenAI Chat Completions"],["responses","OpenAI Responses"],["anthropic","Anthropic Messages"],["gemini","Gemini 原生"]].map(([id,name])=>'<option value="'+id+'">'+name+'</option>').join("")+'</select></label></div><label>服务地址<input type="url" name="baseUrl" id="baseUrl" value="'+esc(c.baseUrl||presets.gemini.base)+'"></label><label>视觉模型 ID<input name="model" value="'+esc(c.model||"")+'" placeholder="服务商实际支持的视觉模型名称" maxlength="160"></label><label>API 密钥<input name="apiKey" type="password" autocomplete="off" placeholder="'+(c.hasKey?"已保存；留空保留":"请输入你的密钥")+'"></label><p id="modelError" class="error"></p><div class="dialog-actions"><button type="button" id="removeConfig" class="danger">删除配置</button><button class="primary" '+(!available?"disabled":"")+'>保存 API 配置</button></div></form></details>');
   $("#apiModelSettings").open=!codexLocal.connected&&!!c.model;
-  bindCodexControls();
+  bindCodexControls();await bindSkillControls();
   $("#protocol").value=c.protocol||presets.gemini.protocol;$("#provider").onchange=e=>{const p=presets[e.target.value];$("#protocol").value=p.protocol;$("#baseUrl").value=p.base};
   $("#modelForm").onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.currentTarget));if(!b.model?.trim()&&!b.apiKey?.trim()&&codexLocal.connected){saveCodexPreference();$("#modal").close();toast("本机 Codex 选择已保存，无需 API 配置");return}if(!b.model?.trim()||!b.baseUrl?.trim()){$("#modelError").textContent="仅配置 API 模型时需要填写服务地址和模型 ID；本机 Codex 无需填写。";return}try{await api("/api/model-config",{method:"PUT",body:JSON.stringify(b)});e.target.elements.apiKey.value="";await refresh(true);$("#modal").close();$("#modalContent").innerHTML="";toast("模型配置已保存")}catch(e){$("#modelError").textContent=e.message}};
   $("#removeConfig").onclick=async()=>{try{await api("/api/model-config",{method:"DELETE"});await refresh(true);$("#modal").close();$("#modalContent").innerHTML="";toast("配置已删除")}catch(e){$("#modelError").textContent=e.message}};

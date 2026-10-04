@@ -13,3 +13,5 @@ export const users=sqliteTable("atlas_users",{id:text("id").primaryKey(),email:t
 export const sessions=sqliteTable("atlas_sessions",{hash:text("hash").primaryKey(),userId:text("user_id").notNull(),createdAt:text("created_at").notNull(),expiresAt:integer("expires_at").notNull(),agent:text("agent").notNull()});
 export const limits=sqliteTable("atlas_limits",{key:text("key").primaryKey(),count:integer("count").notNull(),expiresAt:integer("expires_at").notNull()});
 export const projects=sqliteTable("atlas_projects",{id:text("id").primaryKey(),ownerId:text("owner_id").notNull(),name:text("name").notNull(),nameKey:text("name_key").notNull().unique(),createdAt:text("created_at").notNull()});
+
+export const analysisSkills=sqliteTable("atlas_analysis_skills",{ownerId:text("owner_id").primaryKey(),name:text("name").notNull(),content:text("content").notNull(),updatedAt:text("updated_at").notNull()});

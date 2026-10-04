@@ -53,3 +53,7 @@
 @media(max-width:500px){#filters{gap:6px;padding:8px}#filters .filter-trigger{font-size:11px;padding:7px;height:36px}}
 
 .header-actions[hidden]{display:none!important}
+
+.analysis-tags{display:grid;gap:12px;margin:24px 0}.analysis-tags>div{display:grid;grid-template-columns:48px minmax(0,1fr);gap:14px;align-items:start}.analysis-tags dt{color:var(--muted);padding-top:6px;font-weight:600}.analysis-tags dd{margin:0;display:flex;gap:7px;flex-wrap:wrap}.analysis-tags .chip{max-width:100%;overflow-wrap:anywhere}.info-grid dd{overflow-wrap:anywhere}
+
+.connection-guide{max-width:850px;margin:60px auto;padding:24px}.connection-guide h2{margin-top:36px}.connection-guide p{line-height:1.9}.connection-guide pre{white-space:pre-wrap;overflow-wrap:anywhere}

@@ -70,6 +70,20 @@ for(const protocol of ["openai","responses","anthropic","gemini"]){
  r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;assert.equal(aiRole.name,"春日山谷");assert(aiRole.name.length<=4);assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙侠"));assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙子"));assert.equal(aiRole.generationPrompt,"用户手动提示词");assert.equal(Object.keys(aiRole.analysisResult.dimensions).length,24);assert.equal(aiRole.analysisResult.dimensions.lighting.primary,"侧逆光");assert.equal(aiRole.analysisResult.dimensions.pose.primary,"not_applicable");assert(aiRole.tags.some(t=>t.dimension==="hairstyle"&&t.name==="超长发"));assert(aiRole.tags.some(t=>t.dimension==="makeup"&&t.name==="清透妆"));assert(aiRole.tags.some(t=>t.dimension==="material"&&t.status==="candidate"&&t.evidence.length));assert(!aiRole.tags.some(t=>["unknown","not_applicable"].includes(t.name)));assert(!aiRole.tags.some(t=>t.dimension==="lighting"));
 }
 
+const customSkill="---\nname: custom-evidence\ndescription: Detailed image analysis\n---\n\n角色服饰请逐项描述可见结构。";
+assert.equal((await call("/api/analysis-skill",{method:"PUT",body:JSON.stringify({content:"invalid"})},ownerCookie)).status,400);
+assert.equal((await call("/api/analysis-skill",{method:"PUT",body:JSON.stringify({content:customSkill})},ownerCookie)).status,200);
+assert.equal((await (await call("/api/analysis-skill",{},ownerCookie)).json()).skill.content,customSkill);
+assert.equal((await (await call("/api/analysis-skill",{},bobCookie)).json()).skill,null);
+await call("/api/analysis-skill",{method:"DELETE"},bobCookie);assert((await (await call("/api/analysis-skill",{},ownerCookie)).json()).skill);
+globalThis.fetch=async(url,options)=>{assert(options.body.includes("custom-evidence"));return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(analysis)}]}}]})};
+r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;
+await call("/api/analysis-skill",{method:"DELETE"},ownerCookie);assert.equal((await (await call("/api/analysis-skill",{},ownerCookie)).json()).skill,null);
+const blank=(await (await upload(ownerCookie)).json()).role;let cleared=(await (await call(path(blank),{method:"PATCH",body:JSON.stringify({...blank,generationPrompt:""})},ownerCookie)).json()).role;
+const withPrompt={...analysis,imagePrompt:"中文提示词：东方幻想人物，薄纱服饰，柔和侧逆光，雾气与粒子，高细节插画。"};
+r=await post(path(cleared,"analysis-result"),{identity:cleared.identity,revision:cleared.revision,result:withPrompt,model:"gemini-2.5-flash-lite",reasoning:"default"},ownerCookie);assert.equal(r.status,200);cleared=(await r.json()).role;assert.equal(cleared.generationPrompt,withPrompt.imagePrompt);assert.equal(cleared.analysisResult.provider,"gemini-local");
+const changed=structuredClone(withPrompt);changed.dimensions.clothing.primary="羽毛幻想礼服";changed.dimensions.clothing.evidence=["可见羽毛装饰"];
+r=await post(path(cleared,"analysis-result"),{identity:cleared.identity,revision:cleared.revision,result:changed,model:"gemini-2.5-flash-lite",reasoning:"default"},ownerCookie);assert.equal(r.status,200);cleared=(await r.json()).role;assert(cleared.tags.some(t=>t.name==="羽毛幻想礼服"));assert(!cleared.tags.some(t=>t.name==="未来霓裳"));assert.equal(cleared.generationPrompt,withPrompt.imagePrompt);
 const localRole=aiRole, localPath=path(localRole,"analysis-result"),localPayload={identity:localRole.identity,revision:localRole.revision,result:analysis,model:"gpt-6-sol",reasoning:"medium"};
 assert.equal((await post(localPath,localPayload,bobCookie)).status,404);
 assert.equal((await post(localPath,{...localPayload,revision:localRole.revision-1},ownerCookie)).status,409);

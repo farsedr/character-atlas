@@ -1,5 +1,5 @@
 # 输出契约
-顶层字段：taxonomy_version="1.0.0"、shortName（图库1–4汉字）、summary、primary_subject、secondary_subjects、dimensions、analysis_quality。
+顶层字段：taxonomy_version="1.0.0"、shortName（图库1–4汉字）、imagePrompt（完整中文提示词）、summary、primary_subject、secondary_subjects、dimensions、analysis_quality。
 dimensions 含 taxonomy.json 的全部24个id。
 每维：{"primary":"最具体标签或unknown或not_applicable","secondary":[],"confidence":0.9,"evidence":["对应可见细节"],"uncertain":false}。
 unknown: confidence=0、secondary=[]、uncertain=true、evidence说明不足；not_applicable: confidence=1、secondary=[]、uncertain=false。
