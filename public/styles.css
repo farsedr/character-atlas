@@ -57,3 +57,5 @@
 .analysis-tags{display:grid;gap:12px;margin:24px 0}.analysis-tags>div{display:grid;grid-template-columns:48px minmax(0,1fr);gap:14px;align-items:start}.analysis-tags dt{color:var(--muted);padding-top:6px;font-weight:600}.analysis-tags dd{margin:0;display:flex;gap:7px;flex-wrap:wrap}.analysis-tags .chip{max-width:100%;overflow-wrap:anywhere}.info-grid dd{overflow-wrap:anywhere}
 
 .connection-guide{max-width:850px;margin:60px auto;padding:24px}.connection-guide h2{margin-top:36px}.connection-guide p{line-height:1.9}.connection-guide pre{white-space:pre-wrap;overflow-wrap:anywhere}
+
+.prompt-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.prompt-heading h3{margin:0}.prompt-heading button{padding:6px 12px;font-size:12px}.upload-name-fields .file-row{display:grid;padding:0;gap:0}.upload-name-fields{font-size:inherit}
