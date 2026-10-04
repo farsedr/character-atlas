@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "素材图库",
-  "short_name": "素材图库",
+  "name": "拾光图鉴",
+  "short_name": "拾光图鉴",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f4f5ef",
-  "theme_color": "#19231f",
+  "theme_color": "#101216",
   "icons": [
     {
       "src": "/icon-192.png",

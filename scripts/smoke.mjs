@@ -49,7 +49,7 @@ for(const baseUrl of ["http://localhost:8000","https://127.0.0.1","https://api.v
 r=await call("/api/model-config",{method:"PUT",body:JSON.stringify(configBody)},ownerCookie);assert.equal(r.status,200);assert(!(await r.text()).includes(configBody.apiKey));assert(!sql.prepare("SELECT key_cipher FROM atlas_model_config").get().key_cipher.includes(configBody.apiKey));
 assert.equal((await (await call("/api/model-config",{},bobCookie)).json()).config,null);
 let aiRole=(await (await upload(ownerCookie,"ai")).json()).role;const realFetch=globalThis.fetch;
-const analysis={shortName:"春日山谷",description:"山谷风景",tags:[{dimension:"theme",name:"春日山谷",groupName:"自然",confidence:.95},{dimension:"clothing",name:"未来礼服",groupName:"未来服饰",confidence:.9}]};
+const analysis={shortName:"春日山谷",description:"山谷风景",tags:[{dimension:"theme",name:"仙侠",groupName:"东方",confidence:.95},{dimension:"theme",name:"仙子",confidence:.93},{dimension:"theme",name:"魔女",confidence:.85},{dimension:"clothing",name:"未来礼服",groupName:"未来服饰",confidence:.9}]};
 for(const protocol of ["openai","responses","anthropic","gemini"]){
  await call("/api/model-config",{method:"PUT",body:JSON.stringify({...configBody,protocol})},ownerCookie);
  globalThis.fetch=async(url,options)=>{
@@ -59,7 +59,7 @@ for(const protocol of ["openai","responses","anthropic","gemini"]){
   if(protocol==="anthropic")return Response.json({content:[{type:"text",text:JSON.stringify(analysis)}]});
   return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(analysis)}]}}]});
  };
- r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;assert.equal(aiRole.name,"春日山谷");assert(aiRole.name.length<=4);assert.equal(aiRole.generationPrompt,"用户手动提示词");
+ r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);aiRole=(await r.json()).role;assert.equal(aiRole.name,"春日山谷");assert(aiRole.name.length<=4);assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙侠"));assert(aiRole.tags.some(t=>t.dimension==="theme"&&t.name==="仙子"));assert.equal(aiRole.generationPrompt,"用户手动提示词");
 }
 globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:JSON.stringify({...analysis,shortName:"超过四个汉字的名字"})}]}}]});
 r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,502);assert.equal((await (await call("/api/library",{},ownerCookie)).json()).roles.find(r=>r.identity===aiRole.identity).name,"春日山谷");
@@ -76,5 +76,5 @@ await post("/api/auth/logout",{},bobCookie);assert.equal((await call("/api/libra
 for(let i=0;i<22;i++)r=await post("/api/auth/login",{email:"blocked@example.com",password:"bad"},"",{"cf-connecting-ip":"new-ip"});assert.equal(r.status,429);
 assert.equal((await call("/manifest.webmanifest")).headers.get("content-type"),"application/manifest+json");
 assert.equal((await call("/")).status,200);assert((await call("/")).headers.get("content-security-policy").includes("object-src 'none'"));
-assert.equal((await call("/share/素材图库分享包.zip")).status,200);
+assert.equal((await call("/share/拾光图鉴分享包.zip")).status,200);
 console.log("PASS: independent signup, legacy ownership, cross-device sync, account isolation, file metadata, custom projects, fixed parents, child groups, batch delete/restore, sequential gap reuse, concurrent upload, four model protocols, four-character names, encrypted keys, CSRF, session revoke, password recovery, rate limit, PWA/share package.");

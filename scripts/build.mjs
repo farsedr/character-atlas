@@ -8,4 +8,4 @@ async function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:tr
 await walk("public");
 fs.writeFileSync(path.join(output,"index.js"),"const SEED="+data+";\nconst STATIC="+JSON.stringify(assets)+";\n"+fs.readFileSync("worker/auth.js","utf8")+"\n"+fs.readFileSync("worker/index.js","utf8"));
 fs.mkdirSync("dist/.openai",{recursive:true});fs.copyFileSync(".openai/hosting.json","dist/.openai/hosting.json");
-console.log("素材图库 Worker + minified PWA build complete.");
+console.log("拾光图鉴 Worker + minified PWA build complete.");

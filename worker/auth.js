@@ -59,7 +59,7 @@ async function authApi(request,env,url){
   const row=await query(env,"SELECT * FROM atlas_users WHERE id=?",id).first();
   return sessionResponse(request,env,row,{recoveryCode:recovery});
  }
- if(!u)throw new HttpError(401,"请登录素材图库");
+ if(!u)throw new HttpError(401,"请登录拾光图鉴");
  if(path==="/api/auth/logout"&&m==="POST"){
   await query(env,"DELETE FROM atlas_sessions WHERE hash=?",u.session_hash).run();const r=json({ok:true});r.headers.set("Set-Cookie","__Host-atlas=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");return r;
  }

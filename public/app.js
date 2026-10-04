@@ -1,6 +1,6 @@
 "use strict";
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const state={user:null,roles:[],recycle:[],labels:[],projects:[],view:"library",filters:{},selected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
+const state={user:null,roles:[],labels:[],projects:[],view:"library",filters:{},selected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
 async function api(path,options={}){
  const r=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...options.headers}});
  let b;try{b=await r.json()}catch{throw new Error("服务暂不可用，请稍后重试")}
@@ -9,7 +9,7 @@ async function api(path,options={}){
 const post=(path,b)=>api(path,{method:"POST",body:JSON.stringify(b)});
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div>'+body;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
-function showAuth(){state.user=null;state.roles=[];state.recycle=[];state.labels=[];state.projects=[];state.selected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
+function showAuth(){state.user=null;state.roles=[];state.labels=[];state.projects=[];state.selected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
  $("#nameLabel").hidden=mode!=="register";$("#confirmLabel").hidden=mode==="login";$("#recoveryLabel").hidden=mode!=="recover";
@@ -33,16 +33,17 @@ $("#authForm").onsubmit=async e=>{
 document.querySelectorAll("[data-auth]").forEach(b=>b.onclick=()=>authMode(b.dataset.auth));
 async function refresh(silent=false){
  if(!state.user)return;try{
- const r=await api("/api/library");Object.assign(state,{roles:r.roles,recycle:r.recycle,labels:r.labels,projects:r.projects,analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
+ const r=await api("/api/library");Object.assign(state,{roles:r.roles,labels:r.labels,projects:r.projects,analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});
  const valid=new Set(state.roles.map(r=>r.identity));for(const id of state.selected)if(!valid.has(id))state.selected.delete(id);
  render();if(r.migrationPending)setTimeout(()=>refresh(true),1000);if(!silent)toast(r.migrationPending?"正在同步现有素材，请稍候…":"已同步云端数据");
  }catch(e){if(!silent)toast(e.message)}
 }
 function allProjects(){return [...new Set([...state.projects.map(p=>p.name),...state.roles.map(r=>r.projectName)])].sort((a,b)=>a.localeCompare(b,"zh-CN"))}
 function labelOptions(d){return [...new Set(state.labels.filter(t=>t.dimension===d).map(t=>t.name))].sort((a,b)=>a.localeCompare(b,"zh-CN"))}
+function groupedOptions(dim,selected){const byName=new Map(state.labels.filter(t=>t.dimension===dim).map(t=>[t.name,t])),groups=new Map();for(const t of byName.values()){const key=t.groupName||"自定义";if(!groups.has(key))groups.set(key,[]);groups.get(key).push(t.name)}return [...groups].map(([g,names])=>'<optgroup label="'+esc(g)+'">'+names.sort((a,b)=>a.localeCompare(b,"zh-CN")).map(n=>'<option value="'+esc(n)+'"'+(selected===n?' selected':'')+'>'+esc(n)+'</option>').join("")+'</optgroup>').join("")}
 function renderFilters(){
- $("#filters").innerHTML=ATLAS.taxonomy.map(d=>'<select data-filter="'+d.id+'" aria-label="'+esc(d.name)+'"><option value="">全部'+esc(d.name)+'</option>'+labelOptions(d.id).map(n=>'<option'+(state.filters[d.id]===n?' selected':'')+'>'+esc(n)+'</option>').join("")+'</select>').join("");
- const old=$("#projectFilter").value;$("#projectFilter").innerHTML='<option value="">全部项目</option>'+allProjects().map(p=>'<option>'+esc(p)+'</option>').join("");$("#projectFilter").value=old;
+ $("#filters").innerHTML=ATLAS.taxonomy.map(d=>'<select data-filter="'+d.id+'" aria-label="'+esc(d.name)+'"><option value="">'+esc(d.name)+'</option>'+groupedOptions(d.id,state.filters[d.id])+'</select>').join("");
+ const old=$("#projectFilter").value;$("#projectFilter").innerHTML='<option value="">灵感集</option>'+allProjects().map(p=>'<option>'+esc(p)+'</option>').join("");$("#projectFilter").value=old;
 }
 function filtered(){
  const q=$("#search").value.trim().toLowerCase(),p=$("#projectFilter").value;
@@ -59,67 +60,54 @@ function resolution(r){
 function size(n){return n>=1048576?(n/1048576).toFixed(2)+" MB":(n/1024).toFixed(1)+" KB"}
 function date(s){return new Date(s).toLocaleString("zh-CN",{hour12:false})}
 function selection(){const list=filtered();$("#selectedCount").textContent="已选 "+state.selected.size+" 项";$("#deleteButton").disabled=!state.selected.size;$("#selectAll").checked=!!list.length&&list.every(r=>state.selected.has(r.identity))}
-function card(r,recycle=false){
- return '<article class="card '+(state.selected.has(r.identity)?"selected":"")+'">'+(recycle?"":'<input type="checkbox" class="select-card" data-select="'+r.identity+'" '+(state.selected.has(r.identity)?"checked":"")+' aria-label="选择'+esc(r.name)+'">')+'<img class="cover" src="'+esc(r.imageUrl)+'" loading="lazy" decoding="async" alt="'+esc(r.name)+'" data-detail="'+r.identity+'"><div class="card-body"><span class="card-id">'+r.id+(recycle?" · 已删除":"")+'</span><h3 title="'+esc(r.name)+'" data-detail="'+r.identity+'">'+esc(r.name)+'</h3><div class="chips">'+r.tags.slice(0,3).map(t=>'<span class="chip">'+esc(t.name)+'</span>').join("")+'</div><div class="card-meta"><span>'+esc(r.projectName)+'</span><span>'+size(r.size)+'</span></div>'+(recycle?'<button data-restore="'+r.identity+'">恢复素材</button>':'')+'</div></article>';
+function card(r){
+ return '<article class="card '+(state.selected.has(r.identity)?"selected":"")+'"><input type="checkbox" class="select-card" data-select="'+r.identity+'" '+(state.selected.has(r.identity)?"checked":"")+' aria-label="选择'+esc(r.name)+'"><img class="cover" src="'+esc(r.imageUrl)+'" loading="lazy" decoding="async" alt="'+esc(r.name)+'" data-detail="'+r.identity+'"><div class="card-body"><span class="card-id">'+r.id+'</span><h3 title="'+esc(r.name)+'" data-detail="'+r.identity+'">'+esc(r.name)+'</h3><p class="card-description">'+esc(r.description||"等待一份关于它的描述。")+'</p><div class="chips">'+r.tags.slice(0,8).map(t=>'<span class="chip" title="'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name||"")+'">'+esc(t.name)+'</span>').join("")+'</div><div class="card-meta"><span>'+esc(r.projectName)+'</span><span>'+size(r.size)+'</span></div></div></article>';
 }
 function render(){
  renderFilters();$("#navCount").textContent=state.roles.length;
  const total=state.roles.reduce((n,r)=>n+r.size,0);
- $("#stats").innerHTML=[["素材数量",state.roles.length],["云端原图",size(total)],["项目数量",allProjects().length],["子标签",state.labels.length]].map(([n,v])=>'<div class="stat"><span>'+n+'</span><strong>'+v+'</strong></div>').join("");
- const titles={library:["素材总览","YOUR IMAGE COLLECTION"],taxonomy:["标签库","CLASSIFY YOUR INSPIRATION"],projects:["项目","ORGANIZE YOUR COLLECTION"],recycle:["回收站","RESTORE YOUR ASSETS"]};
- $("#viewTitle").textContent=titles[state.view][0];$("#viewSubtitle").textContent=titles[state.view][1];$("#libraryTools").hidden=state.view!=="library";$("#viewDescription").textContent=state.view==="taxonomy"?"父类别固定；自由扩展子标签与服饰分组。":state.view==="recycle"?"恢复素材时分配可用编号，原文件保持完整。":"收集、分类，让灵感随时可用。";
- document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));
- if(state.view==="library"){
-  const list=filtered(),max=Math.max(1,Math.ceil(list.length/60));state.page=Math.min(state.page,max);
-  $("#content").innerHTML=list.length?'<div class="grid">'+list.slice((state.page-1)*60,state.page*60).map(r=>card(r)).join("")+'</div><div class="dialog-actions"><span class="muted">共 '+list.length+' 项 · '+state.page+' / '+max+'</span><button data-page="-1" '+(state.page===1?"disabled":"")+'>上一页</button><button data-page="1" '+(state.page===max?"disabled":"")+'>下一页</button></div>':'<div class="empty">还没有匹配的素材。上传图片或文件夹，开始整理你的图库。</div>';selection();
- }else if(state.view==="recycle"){
-  $("#content").innerHTML=state.recycle.length?'<div class="grid">'+state.recycle.map(r=>card(r,true)).join("")+'</div>':'<div class="empty">回收站为空</div>';
- }else if(state.view==="taxonomy"){
-  $("#content").innerHTML=ATLAS.taxonomy.map(d=>{
-   const tags=state.labels.filter(t=>t.dimension===d.id),groups=[...new Set(tags.map(t=>t.groupName||"新增标签"))];
-   return '<section class="panel"><div class="category-head"><div><h3>'+esc(d.name)+'</h3><span class="muted small">'+esc(d.description||"固定父类别")+' · '+tags.length+' 个子标签</span></div><button data-add-tag="'+d.id+'">＋ 添加子标签</button></div>'+groups.map(g=>'<div class="tag-group"><h4>'+esc(g)+'</h4>'+tags.filter(t=>(t.groupName||"新增标签")===g).map(t=>'<span class="chip">'+esc(t.name)+'</span>').join("")+'</div>').join("")+'</section>';
-  }).join("");
- }else{
-  $("#content").innerHTML='<div class="dialog-actions"><button id="newProject">＋ 新建项目</button></div><div class="project-grid">'+allProjects().map(p=>'<section class="panel project-card"><h3>'+esc(p)+'</h3><span class="muted small">专属项目</span><strong>'+state.roles.filter(r=>r.projectName===p).length+'</strong><button data-project="'+esc(p)+'">浏览素材</button></section>').join("")+'</div>';$("#newProject").onclick=()=>newProject();
- }
+ $("#stats").innerHTML=[["珍藏素材",state.roles.length],["原图体量",size(total)],["灵感标记",new Set(state.roles.flatMap(r=>r.tags.map(t=>t.dimension+":"+t.name))).size]].map(([n,v])=>'<div class="stat"><span>'+n+'</span><strong>'+v+'</strong></div>').join("");
+ $("#viewTitle").textContent="灵感总览";$("#viewSubtitle").textContent="THE INSPIRATION ATLAS";$("#viewDescription").textContent="把片刻灵感，收藏成自己的图鉴。";
+ $("#styleShortcuts").innerHTML=ATLAS.taxonomy.find(d=>d.id==="style").groups.slice(0,5).map(g=>{const value=g.values.find(v=>state.roles.some(r=>r.tags.some(t=>t.dimension==="style"&&t.name===v)))||g.values[0];return '<button data-style-shortcut="'+esc(value)+'" class="'+(state.filters.style===value?"selected":"")+'">'+esc(value)+'<span>'+state.roles.filter(r=>r.tags.some(t=>t.dimension==="style"&&t.name===value)).length+"</span></button>"}).join("");
+ const list=filtered(),max=Math.max(1,Math.ceil(list.length/60));state.page=Math.min(state.page,max);
+ $("#content").innerHTML=list.length?'<div class="results-bar"><span>发现 <strong>'+list.length+'</strong> 份灵感</span><button id="clearFilters" class="text-button">重置筛选</button></div><div class="grid">'+list.slice((state.page-1)*60,state.page*60).map(r=>card(r)).join("")+'</div><div class="dialog-actions"><span class="muted">共 '+list.length+' 项 · '+state.page+' / '+max+'</span><button data-page="-1" '+(state.page===1?"disabled":"")+'>上一页</button><button data-page="1" '+(state.page===max?"disabled":"")+'>下一页</button></div>':'<div class="empty">尚未发现匹配的灵感。上传图片或文件夹，开始收藏你的图鉴。<p><button id="clearFilters">重置筛选</button></p></div>';selection();
+ $("#clearFilters").onclick=()=>{state.filters={};$("#search").value="";$("#projectFilter").value="";state.page=1;render()};
 }
-function roleByIdentity(id){return state.roles.find(r=>r.identity===id)||state.recycle.find(r=>r.identity===id)}
+function roleByIdentity(id){return state.roles.find(r=>r.identity===id)}
 function assetPath(r,action=""){return"/api/assets/"+r.id+(action?"/"+action:"")+"?v="+encodeURIComponent(r.identity)}
 function details(r){
- modal(r.name,'<div class="detail-grid"><div><img class="detail-image" src="'+esc(r.imageUrl)+'" alt="'+esc(r.name)+'"></div><div><p class="eyebrow">'+r.id+'</p><p>'+esc(r.description||"尚未添加描述")+'</p><div class="chips">'+r.tags.map(t=>'<span class="chip">'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name)+': '+esc(t.name)+'</span>').join("")+'</div><dl class="info-grid">'+[["源文件",r.filename],["源文件大小",size(r.size)],["分辨率",resolution(r)],["比例",aspect(r)],["上传时间",date(r.createdAt)],["项目",r.projectName]].map(([n,v])=>'<div><dt>'+n+'</dt><dd>'+esc(v)+'</dd></div>').join("")+'</dl><h3>生图提示词</h3><p class="prompt">'+esc(r.generationPrompt||"未填写，可手动添加")+'</p><div class="dialog-actions"><a href="'+esc(r.downloadUrl)+'" download>下载原图</a>'+(r.deletedAt?'':'<button id="editRole">编辑</button><button id="analyzeRole" '+(!state.analysisEnabled?"disabled":"")+'>分析标签</button>')+'</div><p class="muted small">模型仅添加固定类别下的子标签。手动标签和生图提示词会保留。</p><p id="detailError" class="error"></p></div></div>');
+ modal(r.name,'<div class="detail-grid"><div><img class="detail-image" src="'+esc(r.imageUrl)+'" alt="'+esc(r.name)+'"></div><div><p class="eyebrow">'+r.id+'</p><p>'+esc(r.description||"尚未添加描述")+'</p><div class="chips">'+r.tags.map(t=>'<span class="chip">'+esc(ATLAS.taxonomy.find(d=>d.id===t.dimension)?.name)+': '+esc(t.name)+'</span>').join("")+'</div><dl class="info-grid">'+[["源文件",r.filename],["源文件大小",size(r.size)],["分辨率",resolution(r)],["比例",aspect(r)],["上传时间",date(r.createdAt)],["灵感集",r.projectName]].map(([n,v])=>'<div><dt>'+n+'</dt><dd>'+esc(v)+'</dd></div>').join("")+'</dl><h3>生图提示词</h3><p class="prompt">'+esc(r.generationPrompt||"未填写，可手动添加")+'</p><div class="dialog-actions"><a href="'+esc(r.downloadUrl)+'" download>下载原图</a>'+(r.deletedAt?'':'<button id="editRole">编辑</button><button id="analyzeRole" '+(!state.analysisEnabled?"disabled":"")+'>分析标签</button>')+'</div><p class="muted small">模型仅添加固定类别下的子标签。手动标签和生图提示词会保留。</p><p id="detailError" class="error"></p></div></div>');
  if(!r.deletedAt){$("#editRole").onclick=()=>editRole(r);$("#analyzeRole").onclick=async()=>{const b=$("#analyzeRole");b.disabled=true;b.textContent="正在分析…";try{const result=await post(assetPath(r,"analyze"),{});await refresh(true);details(result.role);toast("分析完成，已添加 "+result.acceptedCount+" 个标签")}catch(e){$("#detailError").textContent=e.message;b.disabled=false;b.textContent="重试分析"}}}
 }
 function projectList(){return '<datalist id="projectNames">'+allProjects().map(n=>'<option value="'+esc(n)+'">').join("")+'</datalist>'}
-function tagAdder(dim="style"){return '<div class="tag-add-row"><select id="tagDimension">'+ATLAS.taxonomy.map(d=>'<option value="'+d.id+'" '+(d.id===dim?"selected":"")+'>'+esc(d.name)+'</option>').join("")+'</select><input id="tagGroup" placeholder="分组（可自定义）" value="新增标签" maxlength="40"><input id="tagName" placeholder="输入或选择子标签" list="tagNames" maxlength="40"><button type="button" id="addTag">添加</button></div><datalist id="tagNames"></datalist>'}
-function wireTagOptions(){const update=()=>{$("#tagNames").innerHTML=labelOptions($("#tagDimension").value).map(n=>'<option value="'+esc(n)+'">').join("")};$("#tagDimension").onchange=update;update()}
-function tagDialog(dim){
- modal("添加子标签",'<p class="muted small">父类别固定。新子标签和分组保存在你自己的账号中。</p>'+tagAdder(dim)+'<p id="formError" class="error"></p>');wireTagOptions();
- $("#addTag").onclick=async()=>{try{await post("/api/tags",{dimension:$("#tagDimension").value,name:$("#tagName").value,groupName:$("#tagGroup").value||"新增标签"});await refresh(true);$("#modal").close();toast("子标签已添加")}catch(e){$("#formError").textContent=e.message}};
-}
+function tagAdder(dim="style"){return '<div class="tag-add-row"><select id="tagDimension">'+ATLAS.taxonomy.map(d=>'<option value="'+d.id+'" '+(d.id===dim?"selected":"")+'>'+esc(d.name)+'</option>').join("")+'</select><input id="tagName" placeholder="输入或选择子标签" list="tagNames" maxlength="40"><button type="button" id="addTag">添加</button></div><datalist id="tagNames"></datalist><div id="tagSuggestions" class="tag-suggestions"></div>'}
+function wireTagOptions(){const update=()=>{
+ const dim=$("#tagDimension").value,d=ATLAS.taxonomy.find(t=>t.id===dim);$("#tagNames").innerHTML=state.labels.filter(t=>t.dimension===dim).map(t=>'<option value="'+esc(t.name)+'" label="'+esc(t.groupName||"自定义")+'">').join("");
+ const context=state.editTags.filter(t=>t.dimension===dim).flatMap(t=>d.refinements?.[t.name]||[]),fallback=dim==="theme"?["仙子","魔女","剑仙","女巫","法师","太空舰长","森林","城堡"]:d.groups.flatMap(g=>g.values).slice(0,8),suggestions=[...new Set(context.length?context:fallback)].filter(n=>!state.editTags.some(t=>t.dimension===dim&&t.name===n));
+ $("#tagSuggestions").innerHTML=suggestions.length?'<span class="small muted">细分参考（按画面选择）</span><div class="chips">'+suggestions.slice(0,12).map(n=>'<button type="button" data-suggest-tag="'+esc(n)+'">'+esc(n)+'</button>').join("")+"</div>":"";
+ };$("#tagDimension").onchange=update;update();$("#tagSuggestions").onclick=e=>{const b=e.target.closest("[data-suggest-tag]");if(b){$("#tagName").value=b.dataset.suggestTag;$("#addTag").click();update()}}}
 function editRole(r){
  state.editTags=r.tags.map(t=>({...t}));
- modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><label>所属项目<input name="projectName" list="projectNames" value="'+esc(r.projectName)+'" maxlength="40" required></label></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>生图提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">点击已有标签移除。父类别不可修改或删除。</p><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
+ modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><label>所属灵感集<input name="projectName" list="projectNames" value="'+esc(r.projectName)+'" maxlength="40" required></label></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>生图提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">输入或选择子标签，按 Enter 或点击添加。直接保存也会收录输入的新标签。点击已有标签可移除。</p><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
  const draw=()=>{$("#editTags").innerHTML=state.editTags.map((t,i)=>'<button type="button" data-remove-tag="'+i+'">'+esc(t.name)+' ×</button>').join("");$("#editTags").querySelectorAll("button").forEach(b=>b.onclick=()=>{state.editTags.splice(Number(b.dataset.removeTag),1);draw()})};draw();
- $("#addTag").onclick=()=>{const t={dimension:$("#tagDimension").value,name:$("#tagName").value.trim(),groupName:$("#tagGroup").value.trim()||"新增标签"};if(t.name&&!state.editTags.some(x=>x.dimension===t.dimension&&x.name===t.name)){state.editTags.push(t);draw();$("#tagName").value=""}};
- $("#editForm").onsubmit=async e=>{e.preventDefault();$("#saveRole").disabled=true;try{const b=Object.fromEntries(new FormData(e.currentTarget));const result=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...b,identity:r.identity,revision:r.revision,tags:state.editTags})});await refresh(true);details(result.role);toast("素材已保存")}catch(e){$("#formError").textContent=e.message;$("#saveRole").disabled=false}};
+ const commitPendingTag=()=>{const t={dimension:$("#tagDimension").value,name:$("#tagName").value.normalize("NFKC").trim()};if(t.name&&!state.editTags.some(x=>x.dimension===t.dimension&&x.name.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g,"")===t.name.toLocaleLowerCase().replace(/\s+/g,""))){if(t.name.length>40||/[<>\x00-\x1f]/.test(t.name)){$("#formError").textContent="子标签为1至40个有效字符";return false}state.editTags.push(t);draw()}$("#tagName").value="";return true};
+ $("#addTag").onclick=commitPendingTag;$("#tagName").onkeydown=e=>{if(e.key==="Enter"&&!e.isComposing){e.preventDefault();commitPendingTag()}};
+ $("#editForm").onsubmit=async e=>{e.preventDefault();if(!commitPendingTag())return;$("#saveRole").disabled=true;try{const b=Object.fromEntries(new FormData(e.currentTarget));const result=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...b,identity:r.identity,revision:r.revision,tags:state.editTags})});await refresh(true);details(result.role);toast("素材已保存")}catch(e){$("#formError").textContent=e.message;$("#saveRole").disabled=false}};
 }
-function newProject(){modal("新建项目",'<form id="projectForm"><label>项目名称<input name="name" required maxlength="40"></label><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary">创建</button></div></form>');$("#projectForm").onsubmit=async e=>{e.preventDefault();try{await post("/api/projects",Object.fromEntries(new FormData(e.currentTarget)));await refresh(true);$("#modal").close()}catch(e){$("#formError").textContent=e.message}}}
 $("#content").onclick=async e=>{
- const el=e.target.closest("[data-detail],[data-select],[data-restore],[data-add-tag],[data-project],[data-page]");if(!el)return;
+ const el=e.target.closest("[data-detail],[data-select],[data-page]");if(!el)return;
  if(el.dataset.detail){const r=roleByIdentity(el.dataset.detail);if(r)details(r)}
  if(el.dataset.select){el.checked?state.selected.add(el.dataset.select):state.selected.delete(el.dataset.select);el.closest(".card").classList.toggle("selected",el.checked);selection()}
- if(el.dataset.restore){const r=roleByIdentity(el.dataset.restore);el.disabled=true;try{await post("/api/assets/restore",{identity:r.identity,revision:r.revision});await refresh(true);toast("素材已恢复")}catch(e){toast(e.message);el.disabled=false}}
- if(el.dataset.addTag)tagDialog(el.dataset.addTag);
- if(el.dataset.project){state.view="library";render();$("#projectFilter").value=el.dataset.project;render()}
  if(el.dataset.page){state.page+=Number(el.dataset.page);render();window.scrollTo({top:0,behavior:"smooth"})}
 };
+$("#styleShortcuts").onclick=e=>{const b=e.target.closest("[data-style-shortcut]");if(b){state.filters.style=state.filters.style===b.dataset.styleShortcut?"":b.dataset.styleShortcut;state.page=1;render()}};
 document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{state.view=b.dataset.view;state.page=1;render()});
 $("#filters").onchange=e=>{state.filters[e.target.dataset.filter]=e.target.value;state.page=1;render()};
 ["search","projectFilter","sort"].forEach(id=>$("#"+id).addEventListener(id==="search"?"input":"change",()=>{state.page=1;render()}));
 $("#selectAll").onchange=e=>{for(const r of filtered())e.target.checked?state.selected.add(r.identity):state.selected.delete(r.identity);render()};
 $("#deleteButton").onclick=()=>{
  const items=state.roles.filter(r=>state.selected.has(r.identity)).map(r=>({identity:r.identity,revision:r.revision}));
- modal("删除 "+items.length+" 个素材",'<p>选中的素材将移入回收站。编号立即释放，原文件可恢复。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
+ modal("删除 "+items.length+" 个素材",'<p>选中的素材将从图库移除，编号立即释放。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
  $("#cancelDelete").onclick=()=>$("#modal").close();$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/delete",{items:items.slice(i,i+25)});deleted+=r.deleted}state.selected.clear();await refresh(true);$("#modal").close();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
 };
 $("#refreshButton").onclick=()=>refresh();
@@ -132,7 +120,7 @@ async function preview(file){
 }
 function uploadDialog(){
  state.files=[];
- modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>选择图片，或选择整个文件夹。原文件保存到云端，登录其他设备后可下载。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>所属项目<input name="projectName" value="未分组" list="projectNames" maxlength="40" required></label><label>命名方式<select name="namingMode" id="namingMode"><option value="original">保留原文件名称</option><option value="custom">手动自定义命名</option><option value="ai" '+(!state.analysisEnabled?"disabled":"")+'>模型自动命名（最多4个字）</option></select></label></div>'+projectList()+'<div id="customNames" class="file-list" hidden></div><label>生图提示词（本次素材共用，可分别编辑）<textarea name="generationPrompt" maxlength="12000"></textarea></label><label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" '+(!state.analysisEnabled?"disabled":"")+'>上传后自动分析并添加子标签</label><p class="form-note">自动命名需要配置视觉模型。分析失败时原图保留，可在详情中重试。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>上传到云端</button></div></form>');
+ modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>选择图片，或选择整个文件夹。原文件保存到云端，登录其他设备后可下载。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>所属灵感集<input name="projectName" value="未分组" list="projectNames" maxlength="40" required></label><label>命名方式<select name="namingMode" id="namingMode"><option value="original">保留原文件名称</option><option value="custom">手动自定义命名</option><option value="ai" '+(!state.analysisEnabled?"disabled":"")+'>模型自动命名（最多4个字）</option></select></label></div>'+projectList()+'<div id="customNames" class="file-list" hidden></div><label>生图提示词（本次素材共用，可分别编辑）<textarea name="generationPrompt" maxlength="12000"></textarea></label><label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" '+(!state.analysisEnabled?"disabled":"")+'>上传后自动分析并添加子标签</label><p class="form-note">自动命名需要配置视觉模型。分析失败时原图保留，可在详情中重试。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>上传到云端</button></div></form>');
  const choose=(files)=>{
   const supported=[...files].filter(f=>/\.(png|jpe?g|webp)$/i.test(f.name));state.files=supported.map(file=>({file,name:file.name.replace(/\.[^.]+$/,"")}));
   $("#fileList").textContent=state.files.length+" 张图片 · "+size(supported.reduce((n,f)=>n+f.size,0))+(files.length>supported.length?" · 已跳过 "+(files.length-supported.length)+" 个其他文件":"");
@@ -192,7 +180,7 @@ let installPrompt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e});
 $("#installButton").onclick=async()=>{
  if(installPrompt){await installPrompt.prompt();installPrompt=null;return}
- modal("安装素材图库",'<p>本应用连接同一份云端素材库，安装后使用你的独立账号登录。</p><ul><li>Windows / macOS / Linux：使用 Chrome 或 Edge 打开本站，点击地址栏的安装图标。</li><li>Android：使用 Chrome 菜单中的「安装应用」或「添加到主屏幕」。</li><li>iPhone / iPad：在 Safari 中点击分享，选择「添加到主屏幕」。</li></ul><p class="muted">需要联网同步。服务端代码和密钥不会分发到设备。</p><p><a href="/share/素材图库分享包.zip" download>下载跨平台分享包</a></p>');
+ modal("安装拾光图鉴",'<p>本应用连接同一份云端素材库，安装后使用你的独立账号登录。</p><ul><li>Windows / macOS / Linux：使用 Chrome 或 Edge 打开本站，点击地址栏的安装图标。</li><li>Android：使用 Chrome 菜单中的「安装应用」或「添加到主屏幕」。</li><li>iPhone / iPad：在 Safari 中点击分享，选择「添加到主屏幕」。</li></ul><p class="muted">需要联网同步。服务端代码和密钥不会分发到设备。</p><p><a href="/share/拾光图鉴分享包.zip" download>下载跨平台分享包</a></p>');
 };
 $("#modal").addEventListener("close",()=>{$("#modalContent").innerHTML=""});
 $("#modal").addEventListener("cancel",e=>{if($("#closeModal")?.disabled)e.preventDefault()});
