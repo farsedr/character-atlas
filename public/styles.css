@@ -81,3 +81,6 @@
 .baidu-job{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--border,#343a44)}.baidu-job p{margin:6px 0 0}.baidu-job a{white-space:nowrap}.baidu-job strong{overflow-wrap:anywhere}
 
 .setup-step{border:1px solid var(--border,#343b46);border-radius:12px;padding:18px;margin:16px 0}.setup-step h3{margin:0 0 12px}.setup-step summary{font-weight:600;cursor:pointer}.setup-status{color:var(--accent,#ef9b75);font-weight:600}.setup-command{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:12px 0;padding:12px;background:rgba(255,255,255,.03);border-radius:8px}.setup-command code,.backup-path{overflow-wrap:anywhere}.setup-command button{flex-shrink:0}@media(max-width:600px){.setup-command{align-items:stretch;flex-direction:column}}
+
+/* Keep modal navigation visible while the content scrolls. */
+#modal{overflow:hidden}#modalContent{display:flex;flex-direction:column;max-height:calc(90vh - 56px);min-height:0}#modalContent>.dialog-head{flex-shrink:0;position:relative;z-index:5}#modalContent>.dialog-body{overflow-y:auto;min-height:0;overscroll-behavior:contain}
