@@ -58,7 +58,7 @@ function bindCodexControls(){
  renderCodexChoices();document.querySelectorAll("[data-copy-setup]").forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText($("#"+b.dataset.copySetup).textContent);toast("命令已复制，粘贴到终端后按 Enter")}catch{toast("无法自动复制，请选中命令手动复制")}});$("#localProvider").onchange=e=>{codexLocal.provider=e.target.value;chooseLocalDefault();saveCodexPreference();renderCodexChoices()};
  $("#codexModel").onchange=e=>{codexLocal.model=e.target.value;const levels=codexLocal.models.find(m=>m.id===codexLocal.model)?.efforts||[];if(!levels.includes(codexLocal.reasoning))codexLocal.reasoning=levels.includes("low")?"low":levels[0];saveCodexPreference();renderCodexChoices()};
  $("#codexReasoning").onchange=e=>{codexLocal.reasoning=e.target.value;saveCodexPreference()};
- $("#connectCodex").onclick=async()=>{const token=$("#codexPairCode").value.trim();if(!/^[a-f0-9]{48}$/.test(token)){$("#codexError").textContent="请输入本机连接页面显示的完整连接码";return}const button=$("#connectCodex");button.disabled=true;codexLocal.token=token;try{const info=await codexRequest("health");if(info.version!==3)throw Error("请下载新版通用连接包，并重新启动");codexLocal.models=(info.models||[]).filter(m=>typeof m.id==="string"&&Array.isArray(m.efforts)&&m.efforts.length);codexLocal.providers=info.providers||{};codexLocal.maxConcurrent=Math.max(1,Math.min(3,Number(info.maxConcurrent)||1));if(!codexLocal.models.some(m=>m.id===codexLocal.model&&(m.provider||"codex")===codexLocal.provider))chooseLocalDefault();codexLocal.connected=true;$("#codexPairCode").value="";$("#codexError").textContent="";renderCodexChoices();toast("本机连接已配对，请检查所选 CLI 的登录状态")}catch(e){codexLocal.token="";codexLocal.connected=false;renderCodexChoices();$("#codexError").textContent=e.message}finally{button.disabled=false}};
+ $("#connectCodex").onclick=async()=>{const token=$("#codexPairCode").value.trim();if(!/^[a-f0-9]{48}$/.test(token)){$("#codexError").textContent="请输入本机连接页面显示的完整连接码";return}const button=$("#connectCodex");button.disabled=true;codexLocal.token=token;try{const info=await codexRequest("health");if(info.version!==3)throw Error("请下载新版通用连接包，并重新启动");codexLocal.models=(info.models||[]).filter(m=>typeof m.id==="string"&&Array.isArray(m.efforts)&&m.efforts.length);codexLocal.providers=info.providers||{};codexLocal.maxConcurrent=Math.max(1,Math.min(5,Number(info.maxConcurrent)||1));if(!codexLocal.models.some(m=>m.id===codexLocal.model&&(m.provider||"codex")===codexLocal.provider))chooseLocalDefault();codexLocal.connected=true;$("#codexPairCode").value="";$("#codexError").textContent="";renderCodexChoices();toast("本机连接已配对，请检查所选 CLI 的登录状态")}catch(e){codexLocal.token="";codexLocal.connected=false;renderCodexChoices();$("#codexError").textContent=e.message}finally{button.disabled=false}};
  $("#disconnectCodex").onclick=()=>{codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};renderCodexChoices();toast("已断开本机连接")};
  $("#resetCodexOptions").onclick=()=>{chooseLocalDefault();saveCodexPreference();renderCodexChoices()};
 }
@@ -67,6 +67,10 @@ async function bindSkillControls(){const render=async()=>{const result=await api
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div><div class="dialog-body">'+body+'</div>';$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
 function showAuth(){codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
+const sceneStyle=document.createElement("link");sceneStyle.rel="stylesheet";sceneStyle.href="/scene.css";document.head.append(sceneStyle);
+const scene=document.createElement("div");scene.className="character-scene";scene.setAttribute("aria-hidden","true");scene.innerHTML='<div class="scene-image scene-one"></div><div class="scene-image scene-two"></div><div class="scene-glow"></div><div class="scene-sparkles"></div>';document.body.prepend(scene);
+const remember=document.createElement("div");remember.id="rememberRow";remember.innerHTML='<label class="check"><input id="rememberPassword" type="checkbox">记住密码</label><p class="form-note">由浏览器密码管理器保存和填充。出现保存提示时请选择保存；每次仍需点击登录。</p>';$("#authSubmit").before(remember);
+document.addEventListener("visibilitychange",()=>document.body.classList.toggle("scene-paused",document.hidden));
 function authMode(mode){
  state.authMode=mode;$("#authError").textContent="";$("#authForm").reset();
  $("#nameLabel").hidden=mode!=="register";$("#confirmLabel").hidden=mode==="login";$("#recoveryLabel").hidden=mode!=="recover";
@@ -74,6 +78,10 @@ function authMode(mode){
  $("#authHint").textContent=mode==="register"?(state.ownerSetup?"注册后，你现有的素材将归属到这个账号。":"每个用户独立注册，素材库与其他账号完全隔离。"):"使用同一个账号，在不同设备继续整理。";
  $("#passwordLabel").textContent=mode==="recover"?"新密码":"密码";$("#authSubmit").textContent={login:"登录",register:"注册",recover:"重设密码"}[mode];
  $("#authForm").elements.password.autocomplete=mode==="login"?"current-password":"new-password";
+ $("#rememberRow").hidden=mode!=="login";
+ const remembered=JSON.parse(localStorage.getItem("atlas-login-preference")||"null");
+ $("#rememberPassword").checked=!!remembered;
+ if(mode==="login"&&remembered)$("#authForm").elements.email.value=remembered.email||"";
 }
 async function loginReady(user){state.user=user;globalThis.resumeBaiduBackup?.();loadCodexPreference();state.filters={};state.selected.clear();state.view="library";$("#authScreen").hidden=true;$("#app").hidden=false;$("#userName").textContent=user.name+" · "+user.email;await refresh()}
 function recoveryDialog(code){
@@ -85,7 +93,7 @@ $("#authForm").onsubmit=async e=>{
  e.preventDefault();const form=e.currentTarget,b=Object.fromEntries(new FormData(form));
  if(state.authMode!=="login"&&b.password!==b.confirmPassword){$("#authError").textContent="两次输入的密码不一致";return}
  $("#authSubmit").disabled=true;$("#authError").textContent="";
- try{const r=await post("/api/auth/"+state.authMode,b);form.reset();await loginReady(r.user);if(r.recoveryCode)recoveryDialog(r.recoveryCode)}catch(e){$("#authError").textContent=e.message}finally{$("#authSubmit").disabled=false}
+ try{const r=await post("/api/auth/"+state.authMode,b);if(state.authMode==="login"){if($("#rememberPassword").checked){localStorage.setItem("atlas-login-preference",JSON.stringify({email:b.email}));if(window.PasswordCredential&&navigator.credentials?.store)try{await navigator.credentials.store(new PasswordCredential({id:b.email,password:b.password,name:r.user.name}))}catch{}}else localStorage.removeItem("atlas-login-preference")}form.reset();await loginReady(r.user);if(r.recoveryCode)recoveryDialog(r.recoveryCode)}catch(e){$("#authError").textContent=e.message}finally{$("#authSubmit").disabled=false}
 };
 document.querySelectorAll("[data-auth]").forEach(b=>b.onclick=()=>authMode(b.dataset.auth));
 async function refresh(silent=false){
@@ -224,7 +232,9 @@ function uploadDialog(){
  state.editTags=[];
  state.files=[];
  modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>可一次选择多张图片，也可继续添加图片或选择整个文件夹。每张图片独立上传和分析，默认同时分析3张。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>分组方式<select name="groupingMode" id="groupingMode"><option value="ai" selected>模型分组</option><option value="manual">手动分组</option></select></label><div id="uploadProjectField" hidden><label>灵感集</label>'+projectPicker("uploadProjects")+'</div></div><div class="row"><label>命名方式<select name="namingMode" id="namingMode"><option value="original">原文件名</option><option value="custom">手动命名</option><option value="ai" selected>模型命名</option></select></label><div id="customNames" class="file-list upload-name-fields" hidden><label>文件名<input disabled placeholder="选择图片后填写"></label></div></div>'+projectList()+'<label>提示词<textarea name="generationPrompt" maxlength="12000"></textarea></label>'+'<h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">选择父标签后输入子标签，按 Enter 或点击添加。本次上传共用，可在详情逐张修改；分析会保留手动标签。</p>'+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" checked>上传后自动分析并添加子标签</label><p class="form-note">取消勾选后只上传，不调用模型；按填写的文件名、灵感集、提示词和标签保存。自动命名和自动分组需要连接本机 Codex / 本机 Gemini 或配置视觉模型。分析失败时原图保留，可在详情中重试。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>上传云端</button></div></form>');
- if(codexLocal.connected&&codexLocal.maxConcurrent<3){const hint=document.createElement("p");hint.className="form-note";hint.innerHTML='当前连接包仅支持逐张分析。<a href="/share/local-connector.zip">下载新版连接包</a>，关闭旧程序并启动新版、重新配对后可同时分析3张。';$("#uploadProgress").before(hint)}
+if(codexLocal.connected&&codexLocal.maxConcurrent<5){const hint=document.createElement("p");hint.className="form-note";hint.innerHTML='当前连接包最高支持同时分析'+codexLocal.maxConcurrent+'张。<a href="/share/local-connector.zip">下载新版连接包</a>，关闭旧程序并启动新版、重新配对后可选择同时分析1–5张。';$("#uploadProgress").before(hint)}
+const concurrencyField=document.createElement("label");concurrencyField.innerHTML='分析并发<select id="analysisConcurrency" name="analysisConcurrency">'+[1,2,3,4,5].map(n=>'<option value="'+n+'">同时分析 '+n+' 张</option>').join('')+'</select><span class="form-note">默认3张；可选1–5张。限流时自动降为逐张重试。旧连接包按实际支持数量执行，请更新连接包以使用5张。</span>';$("#uploadError").before(concurrencyField);$("#analysisConcurrency").value=localStorage.getItem("atlas-analysis-concurrency")||"3";
+ const stop=document.createElement("button");stop.id="stopAnalysis";stop.type="button";stop.className="danger";stop.textContent="停止分析";stop.hidden=true;$("#startUpload").before(stop);
  wireTagOptions();const commitUploadTag=wireManualTags("#uploadError");
  const choose=(files)=>{
   for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const entry=state.files[Number(input.dataset.customName)];if(entry)entry.name=input.value}
@@ -248,7 +258,11 @@ function uploadDialog(){
   const entries=state.files.map((entry,i)=>({...entry,name:$("#customNames").querySelector('[data-custom-name="'+i+'"]')?.value||entry.name}));
   if(mode==="custom"&&entries.some(entry=>!entry.name.trim())){$("#uploadError").textContent="请为每个素材输入名称";return}
   for(const control of form.querySelectorAll("input,select,textarea,button"))control.disabled=true;$("#closeModal").disabled=true;
-  $("#uploadProgress").hidden=false;let ok=0,failed=0,aiFailed=0;
+  $("#uploadProgress").hidden=false;let ok=0,failed=0,aiFailed=0,stopped=false,analysed=0;
+  const requestedConcurrency=Number($("#analysisConcurrency").value)||3;
+  localStorage.setItem("atlas-analysis-concurrency",String(requestedConcurrency));
+  $("#stopAnalysis").hidden=!auto;$("#stopAnalysis").disabled=false;
+  $("#stopAnalysis").onclick=()=>{stopped=true;$("#stopAnalysis").disabled=true;$("#stopAnalysis").textContent="已停止排队，等待当前分析完成"};
   const uploaded=[],uploadProjects=selectedProjects("uploadProjects");let next=0;
   const uploadNext=async()=>{while(next<entries.length){const i=next++;
    const entry=entries[i];$("#uploadProgress").textContent="正在上传 "+(i+1)+" / "+entries.length+"： "+entry.file.name+"\n成功 "+ok+"，上传失败 "+failed+"，分析失败 "+aiFailed;
@@ -260,15 +274,15 @@ function uploadDialog(){
    }catch(error){failed++;$("#uploadError").textContent="最近一次上传错误："+entry.file.name+" · "+error.message}
   }};
   await Promise.all(Array.from({length:Math.min(3,entries.length)},uploadNext));
-  if(auto){
-   const concurrency=analysisChoice==="api"?3:codexLocal.maxConcurrent;
+  if(auto&&!stopped){
+   const concurrency=analysisChoice==="api"?requestedConcurrency:Math.min(requestedConcurrency,codexLocal.maxConcurrent);
    const jobs=uploaded.map(role=>({role,status:"等待分析",attempts:0})),queue=[...jobs];let cursor=0,active=0,limit=concurrency,done=0,cooldown=0;
    const show=()=>{$("#uploadProgress").textContent="上传完成："+ok+" 张；分析完成 "+done+" / "+jobs.length+" · 同时分析 "+limit+" 张\n"+jobs.map(j=>j.role.name+" · "+j.status).join("\n")};
-   const worker=async()=>{while(cursor<queue.length){
+   const worker=async()=>{while(cursor<queue.length&&!stopped){
     if(active>=limit||Date.now()<cooldown){await new Promise(r=>setTimeout(r,200));continue}
     const job=queue[cursor++];active++;job.status=job.attempts?"重试分析":"正在分析";show();
-    try{const analyzed=await analyzeAsset(job.role,analysisChoice);if(analyzed.role){const at=state.roles.findIndex(r=>r.identity===analyzed.role.identity);if(at<0)state.roles.push(analyzed.role);else state.roles[at]=analyzed.role}job.status="分析完成";done++}
-    catch(error){if(error.status===429&&job.attempts<2){job.attempts++;limit=1;cooldown=Math.max(cooldown,Date.now()+job.attempts*3000);job.status="限流，等待重试";queue.push(job)}
+    try{const analyzed=await analyzeAsset(job.role,analysisChoice);if(analyzed.role){const at=state.roles.findIndex(r=>r.identity===analyzed.role.identity);if(at<0)state.roles.push(analyzed.role);else state.roles[at]=analyzed.role}job.status="分析完成";done++;analysed++}
+    catch(error){if(!stopped&&error.status===429&&job.attempts<2){job.attempts++;limit=1;cooldown=Math.max(cooldown,Date.now()+job.attempts*3000);job.status="限流，等待重试";queue.push(job)}
      else{aiFailed++;done++;job.status="失败："+error.message;$("#uploadError").textContent="最近一次分析错误："+job.role.name+" · "+error.message}}
     finally{active--;show()}
    }};
@@ -276,10 +290,12 @@ function uploadDialog(){
   }
   await refresh(true);$("#closeModal").disabled=false;
   $("#uploadProgress").textContent="完成：上传成功 "+ok+" 张，上传失败 "+failed+" 张，分析失败 "+aiFailed+" 张。失败项请重新选择或在素材详情重试。";
+  if(stopped)$("#uploadProgress").textContent="已停止分析：上传成功 "+ok+" 张，分析完成 "+analysed+" 张，分析失败 "+aiFailed+" 张，未分析 "+Math.max(0,ok-analysed-aiFailed)+" 张。已完成结果保留；其余素材保留上传时填写的信息。";
+  $("#stopAnalysis").hidden=true;
   $("#startUpload").textContent="完成";$("#startUpload").disabled=false;$("#startUpload").type="button";$("#startUpload").onclick=()=>$("#modal").close();
  };
 }
-$("#uploadButton").onclick=uploadDialog;
+ $("#uploadButton").onclick=uploadDialog;
 const presets={
  openai:{name:"OpenAI",protocol:"responses",base:"https://api.openai.com/v1"},claude:{name:"Anthropic Claude",protocol:"anthropic",base:"https://api.anthropic.com/v1"},gemini:{name:"Google Gemini",protocol:"gemini",base:"https://generativelanguage.googleapis.com/v1beta"},
  qwen:{name:"通义千问",protocol:"openai",base:"https://dashscope.aliyuncs.com/compatible-mode/v1"},glm:{name:"智谱 GLM",protocol:"openai",base:"https://open.bigmodel.cn/api/paas/v4"},doubao:{name:"豆包",protocol:"openai",base:"https://ark.cn-beijing.volces.com/api/v3"},siliconflow:{name:"硅基流动",protocol:"openai",base:"https://api.siliconflow.cn/v1"},openrouter:{name:"OpenRouter",protocol:"openai",base:"https://openrouter.ai/api/v1"},custom:{name:"自定义兼容接口",protocol:"openai",base:""}
@@ -317,4 +333,4 @@ $("#modal").addEventListener("close",()=>{$("#modalContent").innerHTML=""});
 $("#modal").addEventListener("cancel",e=>{if($("#closeModal")?.disabled)e.preventDefault()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
 setInterval(()=>{if(state.user&&!document.hidden&&!$("#modal").open&&!$("#filterPopover"))refresh(true)},30000);
-(async()=>{try{const r=await api("/api/auth/me");state.ownerSetup=r.ownerSetup;authMode(r.ownerSetup?"register":"login");if(r.user)await loginReady(r.user)}catch(e){$("#authError").textContent=e.message}})();
+(async()=>{try{const r=await api("/api/auth/me");state.ownerSetup=r.ownerSetup;authMode(r.ownerSetup?"register":"login");if(r.user)$("#authForm").elements.email.value=r.user.email;if(localStorage.getItem("atlas-login-preference")&&navigator.credentials?.get&&window.PasswordCredential){try{const saved=await navigator.credentials.get({password:true,mediation:"silent"});if(saved&&state.authMode==="login"&&!state.user){$("#authForm").elements.email.value=saved.id;$("#authForm").elements.password.value=saved.password}}catch{}}}catch(e){$("#authError").textContent=e.message}})();

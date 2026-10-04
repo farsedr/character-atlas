@@ -74,7 +74,7 @@ export async function run(image,exe,options={model:MODEL,reasoning:"low"},custom
  }
 }
 export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
- let active=0;const maxConcurrent=3;
+ let active=0;const maxConcurrent=5;
  const send=(r,status,data,headers={})=>{r.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff",...headers});r.end(JSON.stringify(data))};
  return http.createServer(async(req,res)=>{
   if(req.headers.host!=="127.0.0.1:"+port){send(res,403,{error:"来源无效"});return}
@@ -90,10 +90,10 @@ export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
   if(provided.length!==expected.length||!crypto.timingSafeEqual(provided,expected)){send(res,401,{error:"连接码无效，请重新配对"},cors);return}
   if(req.method==="GET"&&req.url==="/health"){const providers={};await Promise.all(["codex","gemini"].map(async kind=>{providers[kind]=await cliStatus(kind,await discoverCli(kind))}));send(res,200,{version:3,model:MODEL,reasoning:"low",speed:"standard",busy:active>=maxConcurrent,active,maxConcurrent,providers,models:await getModels()},cors);return}
   if(req.method!=="POST"||req.url!=="/analyze"){send(res,404,{error:"接口不存在"},cors);return}
-  if(active>=maxConcurrent){send(res,429,{error:"已有3张图片正在分析，请稍后重试"},cors);return}
+  if(active>=maxConcurrent){send(res,429,{error:"已有5张图片正在分析，请稍后重试"},cors);return}
   if(!["image/jpeg","application/json"].includes(req.headers["content-type"])){send(res,415,{error:"只接受图片分析请求"},cors);return}
   let options;try{options=selectedOptions(await getModels(),req.headers["x-atlas-model"]||MODEL,req.headers["x-atlas-reasoning"]||"low")}catch(e){send(res,400,{error:e.message},cors);return}
-  if(active>=maxConcurrent){send(res,429,{error:"已有3张图片正在分析，请稍后重试"},cors);return}
+  if(active>=maxConcurrent){send(res,429,{error:"已有5张图片正在分析，请稍后重试"},cors);return}
   active++;
   try{
    const parts=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>3*1048576)throw Error("预览图超过2MB");parts.push(chunk)}

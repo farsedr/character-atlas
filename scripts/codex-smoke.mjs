@@ -20,11 +20,11 @@ try{
  const request=fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255,217]),headers:{...headers,"Content-Type":"image/jpeg","X-Atlas-Model":"gpt-6-sol","X-Atlas-Reasoning":"medium"}});
  while(!release)await new Promise(resolve=>setTimeout(resolve,10));
  assert.deepEqual(used,{model:"gpt-6-sol",reasoning:"medium",provider:"codex"});
- const extra=[1,2].map(()=>fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255])}));
- while(releases.length<3)await new Promise(resolve=>setTimeout(resolve,10));
+ const extra=[1,2,3,4].map(()=>fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255])}));
+ while(releases.length<5)await new Promise(resolve=>setTimeout(resolve,10));
  const busy=await fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"image/jpeg"},body:Buffer.from([255,216,255])});assert.equal(busy.status,429);
  releases.forEach((resolve,i)=>resolve({shortName:"test-"+i}));
- const responses=await Promise.all([request,...extra]);assert(responses.every(r=>r.status===200));const bodies=await Promise.all(responses.map(r=>r.json()));assert.equal(new Set(bodies.map(b=>b.result.shortName)).size,3);assert.equal(calls,3);
+ const responses=await Promise.all([request,...extra]);assert(responses.every(r=>r.status===200));const bodies=await Promise.all(responses.map(r=>r.json()));assert.equal(new Set(bodies.map(b=>b.result.shortName)).size,5);assert.equal(calls,5);
 
  release=null;const gemRequest=fetch(url+"/analyze",{method:"POST",headers:{...headers,"Content-Type":"application/json","X-Atlas-Model":"gemini-2.5-flash-lite","X-Atlas-Reasoning":"default"},body:JSON.stringify({image:Buffer.from([255,216,255,217]).toString("base64"),skill:"自定义 Skill",collections:["Fantasy"]})});
 while(!release)await new Promise(resolve=>setTimeout(resolve,10));assert.equal(receivedSkill,"自定义 Skill");assert.equal(used.provider,"gemini");assert.deepEqual(receivedCollections,["Fantasy"]);release({summary:"mock"});assert.equal((await gemRequest).status,200);
@@ -41,5 +41,5 @@ try{
  const previousPath=process.env.PATH;process.env.PATH=path.resolve("test-output/gemini-cli/node_modules/.bin")+path.delimiter+previousPath;try{if(fs.existsSync("test-output/gemini-cli/node_modules/@google/gemini-cli/package.json")){const found=await discoverCli("gemini");assert(found?.prefix[0].endsWith("bundle"+path.sep+"gemini.js"))}}finally{process.env.PATH=previousPath}
 }finally{const resolved=path.resolve(fixtureDir);if(!resolved.startsWith(path.resolve(os.tmpdir())+path.sep))throw Error("Unsafe fixture path");fs.rmSync(resolved,{recursive:true,force:true})}
 console.log("PASS: Gemini/Codex child-process adapters, imported Skill forwarding, dynamic install discovery, Google-only authentication, fixed model without fallback, image-only read policy.");
- console.log("PASS: Codex exact origin/pair authentication, JPEG-only fixed endpoint, three independent concurrent requests, fourth request rate limited, no arbitrary execution, cheapest pinned model/low effort, 24-dimension schema.");
+ console.log("PASS: Codex exact origin/pair authentication, JPEG-only fixed endpoint, five independent concurrent requests, sixth request rate limited, no arbitrary execution, cheapest pinned model/low effort, 24-dimension schema.");
 }finally{await new Promise(resolve=>server.close(resolve))}

@@ -1,0 +1,32 @@
+.character-scene{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:-1;background:#0b1120}
+.scene-image{position:absolute;inset:-3%;background-size:cover;background-position:center;animation:scene-drift 24s ease-in-out infinite alternate;will-change:transform}
+.scene-one{background-image:url('/scene-palace.png');opacity:.4}
+.scene-two{background-image:url('/scene-blue.png');opacity:0;animation:scene-drift 28s ease-in-out infinite alternate,scene-fade 36s ease-in-out infinite}
+.scene-glow{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,16,29,.22),rgba(9,16,29,.76)),linear-gradient(0deg,#0b1120 0%,transparent 65%)}
+.scene-sparkles{position:absolute;inset:-10%;background:radial-gradient(circle at 12% 25%,#c9e5ff99 0 1px,transparent 3px),radial-gradient(circle at 76% 35%,#ded0ff88 0 2px,transparent 4px),radial-gradient(circle at 38% 70%,#b6c7ff88 0 1px,transparent 3px);background-size:370px 410px;animation:scene-drift 17s ease-in-out infinite alternate}
+body{background:#0b1120;color:#e7edf7;isolation:isolate}
+body:has(.character-scene){background:transparent}
+.auth-screen{background:transparent!important;position:relative;border:0!important}
+.auth-art{background:transparent!important;position:relative}
+.auth-art:before,.auth-art:after{display:none!important}
+.auth-card{background:rgba(13,21,37,.7)!important;backdrop-filter:blur(22px);border-left:1px solid #bbd3fa25}
+.auth-card input{background:#101d3299!important;border-color:#b6cafa30!important;border-radius:12px!important;color:#edf3ff!important}
+.auth-card .primary{background:linear-gradient(120deg,#c1d7f7,#c7bde8)!important;color:#172238!important;border-radius:12px!important}
+.auth-kicker,.auth-card .muted,.entrance-copy p,.entrance-bottom,.auth-links button{color:#b8c9e0!important}
+.auth-screen .eyebrow,.auth-screen small{color:#a9bddb!important}
+.entrance-copy{position:relative;z-index:1;text-shadow:0 2px 35px #07111d}
+.layout{background:rgba(9,16,29,.64)!important}
+.sidebar{background:rgba(12,21,36,.76)!important;backdrop-filter:blur(20px)}
+main{background:transparent!important}
+.card,.project-card,.filters,.topbar{background:rgba(20,32,51,.73)!important;backdrop-filter:blur(12px);border-color:#abc8ee22!important}
+.card{box-shadow:0 12px 36px #0003;transition:transform .2s,border-color .2s}
+.card:hover{transform:translateY(-3px);border-color:#aacdfd66!important}
+dialog{background:rgba(16,27,44,.94)!important;backdrop-filter:blur(24px)}
+#uploadForm>.dialog-actions{position:sticky;bottom:-1px;background:#101b2cf5;padding:16px 0;z-index:5;border-top:1px solid #bfd5fa22;flex-wrap:wrap}
+#rememberRow .check{display:flex;align-items:center;gap:10px;margin:0}
+#rememberRow input{width:18px;height:18px;min-height:0;accent-color:#bbcafa}
+.scene-paused .scene-image,.scene-paused .scene-sparkles{animation-play-state:paused}
+@keyframes scene-drift{from{transform:scale(1.02) translate(-.5%,-.5%)}to{transform:scale(1.065) translate(.7%,.7%)}}
+@keyframes scene-fade{0%,10%,90%,100%{opacity:0}35%,65%{opacity:.38}}
+@media(max-width:760px){.scene-image{background-position:65% center}.auth-card{background:#0d172bd9!important}.auth-art{min-height:260px!important}.entrance-copy h1{font-size:42px}.layout{background:#09101dd1!important}}
+@media(prefers-reduced-motion:reduce){.scene-image,.scene-sparkles{animation:none!important}.card:hover{transform:none}.scene-two{display:none}}

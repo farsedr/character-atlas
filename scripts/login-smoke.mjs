@@ -1,0 +1,12 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';
+const dom=new JSDOM(fs.readFileSync('public/index.html','utf8'),{url:'https://local.test',runScripts:'outside-only'}),w=dom.window,d=w.document;
+w.setInterval=()=>0;w.HTMLDialogElement.prototype.close=function(){};
+let entered=0,stored;const user={id:'fixture',name:'Fixture',email:'fixture@example.com'};
+w.fetch=async(path,opts={})=>{if(path==='/api/library'){entered++;return{ok:true,json:async()=>({roles:[],labels:[],projects:[],recycle:[]})}}return{ok:true,json:async()=>({user,ownerSetup:false})}};
+w.PasswordCredential=class{constructor(fields){Object.assign(this,fields)}};
+Object.defineProperty(w.navigator,'credentials',{value:{get:async()=>({id:user.email,password:'fixture-password-123'}),store:async c=>{stored=c}}});
+w.localStorage.setItem('atlas-login-preference',JSON.stringify({email:user.email}));
+for(const p of ['data.js','tag-groups.js','app.js'])w.eval(fs.readFileSync('public/'+p,'utf8'));
+await new Promise(r=>setTimeout(r,10));assert.equal(entered,0);assert.equal(d.querySelector('#authScreen').hidden,false);assert.equal(d.querySelector('#app').hidden,true);assert.equal(d.querySelector('#authForm').elements.password.value,'fixture-password-123');assert(d.querySelector('#rememberPassword').checked);
+d.querySelector('#authForm').dispatchEvent(new w.Event('submit',{cancelable:true,bubbles:true}));await new Promise(r=>setTimeout(r,10));assert.equal(entered,1);assert.equal(stored.password,'fixture-password-123');assert(!w.localStorage.getItem('atlas-login-preference').includes('password'));
+dom.window.close();console.log('PASS: existing session waits for explicit login, remembered browser credential only fills form, no plaintext password in localStorage.');
