@@ -23,3 +23,4 @@
 完整说明：docs/USER-GUIDE.md
 
 在线指引：https://character-atlas-wang-20261003.wqlwoaiwo.chatgpt.site/connection-guide.html
+新版连接包支持同时分析3张图片，每张使用独立临时目录。更新时关闭旧程序，解压新版并重新启动，在网站重新配对。

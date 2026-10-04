@@ -37,7 +37,7 @@ function object(properties){return {type:"object",properties,required:Object.key
 const text={type:"string"},list={type:"array",items:text},score={type:"number",minimum:0,maximum:1};
 export function outputSchema(taxonomy){
  const dims=Object.fromEntries(taxonomy.dimensions.map(d=>[d.id,object({primary:d.id==="vibe"?{anyOf:[text,{type:"array",items:text,maxItems:2}]}:text,secondary:{...list,maxItems:d.limit-1},confidence:score,evidence:list,uncertain:{type:"boolean"}})]));
- return object({taxonomy_version:{type:"string",enum:["1.0.0"]},shortName:text,imagePrompt:text,collectionName:text,summary:text,primary_subject:text,secondary_subjects:list,dimensions:object(dims),analysis_quality:object({confidence_overall:score,visible_evidence:list,uncertain_points:list,conflicting_tags:list,missing_dimensions:list,proposed_tags:{type:"array",items:object({dimension:text,tag:text,reason:text})}})});
+ return object({taxonomy_version:{type:"string",enum:["1.0.0"]},shortName:text,imagePrompt:text,collectionName:text,collectionNames:{...list,maxItems:10},summary:text,primary_subject:text,secondary_subjects:list,dimensions:object(dims),analysis_quality:object({confidence_overall:score,visible_evidence:list,uncertain_points:list,conflicting_tags:list,missing_dimensions:list,proposed_tags:{type:"array",items:object({dimension:text,tag:text,reason:text})}})});
 }
 export async function run(image,exe,options={model:MODEL,reasoning:"low"},customSkill="",collections=[]){
  const base=path.join(os.tmpdir(),"atlas-codex"),dir=path.join(base,crypto.randomUUID());
@@ -74,7 +74,7 @@ export async function run(image,exe,options={model:MODEL,reasoning:"low"},custom
  }
 }
 export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
- let busy=false;
+ let active=0;const maxConcurrent=3;
  const send=(r,status,data,headers={})=>{r.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff",...headers});r.end(JSON.stringify(data))};
  return http.createServer(async(req,res)=>{
   if(req.headers.host!=="127.0.0.1:"+port){send(res,403,{error:"来源无效"});return}
@@ -88,19 +88,19 @@ export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
   if(req.method==="OPTIONS"){res.writeHead(204,{...cors,"Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Atlas-Token, X-Atlas-Model, X-Atlas-Reasoning","Access-Control-Max-Age":"600"});res.end();return}
   const provided=Buffer.from(String(req.headers["x-atlas-token"]||"")),expected=Buffer.from(token);
   if(provided.length!==expected.length||!crypto.timingSafeEqual(provided,expected)){send(res,401,{error:"连接码无效，请重新配对"},cors);return}
-  if(req.method==="GET"&&req.url==="/health"){const providers={};await Promise.all(["codex","gemini"].map(async kind=>{providers[kind]=await cliStatus(kind,await discoverCli(kind))}));send(res,200,{version:3,model:MODEL,reasoning:"low",speed:"standard",busy,providers,models:await getModels()},cors);return}
+  if(req.method==="GET"&&req.url==="/health"){const providers={};await Promise.all(["codex","gemini"].map(async kind=>{providers[kind]=await cliStatus(kind,await discoverCli(kind))}));send(res,200,{version:3,model:MODEL,reasoning:"low",speed:"standard",busy:active>=maxConcurrent,active,maxConcurrent,providers,models:await getModels()},cors);return}
   if(req.method!=="POST"||req.url!=="/analyze"){send(res,404,{error:"接口不存在"},cors);return}
-  if(busy){send(res,429,{error:"正在分析另一张图片，请稍后重试"},cors);return}
+  if(active>=maxConcurrent){send(res,429,{error:"已有3张图片正在分析，请稍后重试"},cors);return}
   if(!["image/jpeg","application/json"].includes(req.headers["content-type"])){send(res,415,{error:"只接受图片分析请求"},cors);return}
   let options;try{options=selectedOptions(await getModels(),req.headers["x-atlas-model"]||MODEL,req.headers["x-atlas-reasoning"]||"low")}catch(e){send(res,400,{error:e.message},cors);return}
-  if(busy){send(res,429,{error:"正在分析另一张图片，请稍后重试"},cors);return}
-  busy=true;
+  if(active>=maxConcurrent){send(res,429,{error:"已有3张图片正在分析，请稍后重试"},cors);return}
+  active++;
   try{
    const parts=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>3*1048576)throw Error("预览图超过2MB");parts.push(chunk)}
    let image=Buffer.concat(parts),customSkill="",collections=[];if(req.headers["content-type"]==="application/json"){const b=JSON.parse(image.toString("utf8"));if(typeof b.image!=="string"||b.image.length>2800000||typeof b.skill!=="string"||b.skill.length>24000)throw Error("图片或 Skill 格式无效");if(b.collections!==undefined&&(!Array.isArray(b.collections)||b.collections.length>200||b.collections.some(n=>typeof n!=="string"||n.length>40)))throw Error("灵感集列表格式无效");collections=b.collections||[];image=Buffer.from(b.image,"base64");customSkill=b.skill}
    if(image.length>2*1048576)throw Error("预览图超过2MB");if(image[0]!==255||image[1]!==216||image[2]!==255)throw Error("无效图片");
    const result=await analyze(image,options,customSkill,collections);send(res,200,{result,...options},cors);
-  }catch(e){send(res,502,{error:e.message||"分析失败"},cors)}finally{busy=false}
+  }catch(e){send(res,e.status||502,{error:e.message||"分析失败"},cors)}finally{active--}
  });
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
