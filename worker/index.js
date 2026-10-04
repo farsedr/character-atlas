@@ -195,6 +195,7 @@ async function handleApi(request,env,url){
  if(url.pathname==="/api/tags"&&request.method==="POST"){
   const b=await request.json(),tags=await canonicalTags(env,[b],"manual",owner);await persistLabels(env,tags,owner);return json({tag:tags[0]},201);
  }
+ if(url.pathname==="/api/assets/batch-download"&&request.method==="POST")return batchDownload(request,env,owner);
  if(url.pathname==="/api/assets/delete"&&request.method==="POST"){
   const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25个素材");
   for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除请求无效");
