@@ -59,3 +59,7 @@
 .connection-guide{max-width:850px;margin:60px auto;padding:24px}.connection-guide h2{margin-top:36px}.connection-guide p{line-height:1.9}.connection-guide pre{white-space:pre-wrap;overflow-wrap:anywhere}
 
 .prompt-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.prompt-heading h3{margin:0}.prompt-heading button{padding:6px 12px;font-size:12px}.upload-name-fields .file-row{display:grid;padding:0;gap:0}.upload-name-fields{font-size:inherit}
+
+.upload-name-fields .file-row input{width:100%;box-sizing:border-box}.project-picker{border:1px solid #353b46;border-radius:8px;padding:10px;min-width:0}.project-options{display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow:auto}.project-option{display:flex;align-items:center;gap:6px;margin:0!important}.project-option input{width:auto!important;margin:0}.project-add{display:flex;gap:8px;margin-top:10px}.project-add input{min-width:0;flex:1}.card-actions{display:flex;gap:10px;margin-top:14px}.card-actions a,.card-actions button{padding:8px 16px;border:1px solid #353b46;border-radius:8px;font-size:14px}
+
+.upload-name-fields{width:100%;min-width:0}.upload-name-fields .file-row{width:100%;grid-template-columns:minmax(0,1fr)}.upload-name-fields input{min-width:0}.row>.project-picker,.row>div{min-width:0}
