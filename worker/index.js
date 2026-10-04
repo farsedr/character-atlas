@@ -159,7 +159,7 @@ function validatedAnalysis(parsed){
 
 async function installedSkill(env,owner){return query(env,"SELECT * FROM atlas_analysis_skills WHERE owner_id=?",owner).first()}
 async function skillApi(request,env,owner){
- if(request.method==="GET"){const skill=await installedSkill(env,owner);return json({skill:skill?{name:skill.name,content:skill.content,updatedAt:skill.updated_at}:null,defaultSkill:ANALYSIS_SKILL})}
+ if(request.method==="GET"){const skill=await installedSkill(env,owner);return json({skill:skill?{name:skill.name,content:skill.content,updatedAt:skill.updated_at}:null,defaultSkill:LOCAL_DEFAULT_SKILL})}
  if(request.method==="DELETE"){await query(env,"DELETE FROM atlas_analysis_skills WHERE owner_id=?",owner).run();return json({skill:null})}
  if(request.method!=="PUT")throw new HttpError(405,"请求方式无效");
  const b=await request.json(),content=typeof b.content==="string"?b.content.trim():"";
@@ -240,9 +240,13 @@ async function handleApi(request,env,url,ctx){
   const changed=result.reduce((n,r)=>n+(r.meta?.changes||0),0);return json({ok:true,deleted:changed});
  }
  if(url.pathname==="/api/assets/purge"&&request.method==="POST"){
- const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25份素材");for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除参数无效");let deleted=0,failed=0;
- for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;try{await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0}catch{failed++}}
- return json({deleted,failed});
+ const b=await request.json();if(b.deleteBaiduBackup!==undefined&&typeof b.deleteBaiduBackup!=="boolean")throw new HttpError(400,"网盘删除选项无效");if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25份素材");for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除参数无效");let deleted=0,failed=0;const errors=[];
+ for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;let localStarted=false;try{
+  if(b.deleteBaiduBackup)await deleteBaiduBackup(env,owner,row);
+  localStarted=true;for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);
+  await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0;
+ }catch(e){failed++;const message=e instanceof HttpError?e.message:"删除失败，请重新选择重试";errors.push({identity:row.id,error:message});await query(env,"UPDATE atlas_assets SET body=json_set("+(localStarted?"body":"json_remove(body,'$.purgePending')")+",'$.purgeError',?),revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",message,row.id,owner,row.revision).run();await query(env,"UPDATE atlas_baidu_backups SET error=?,updated_at=? WHERE asset_id=? AND owner_id=?",message,new Date().toISOString(),row.id,owner).run()}}
+ return json({deleted,failed,errors});
  }
  if(url.pathname==="/api/assets/restore"&&request.method==="POST"){
   const b=await request.json();if(typeof b.identity!=="string"||!Number.isInteger(b.revision))throw new HttpError(400,"恢复请求无效");

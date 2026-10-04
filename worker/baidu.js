@@ -120,3 +120,18 @@ async function baiduRoutes(request,env,url,owner){
  const match=action.match(/^\/files\/([a-zA-Z0-9-]{1,100})\/download$/);if(match&&request.method==="GET")return baiduBackupDownload(env,owner,match[1]);
  throw new HttpError(404,"百度网盘接口不存在");
 }
+
+async function deleteBaiduBackup(env,owner,row){
+ const job=await query(env,"SELECT * FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).first();if(!job)return;
+ if(job.lease_until>Date.now())throw new HttpError(409,"网盘备份仍在处理中，请稍后重新删除");
+ const cfg=baiduSettings(env);if(!cfg)throw new HttpError(409,"网盘配置不可用，备份记录已保留");
+ const ext=row.mime==="image/png"?".png":row.mime==="image/jpeg"?".jpg":".webp",expected=cfg.folder+"/"+row.id+ext;
+ if(job.remote_path!==expected||!/^[-a-zA-Z0-9]+$/.test(row.id))throw new HttpError(409,"备份路径不匹配，未删除网盘文件");
+ const auth=await baiduAccess(env,owner);if(auth.connection.id!==job.connection_id)throw new HttpError(409,"备份所属网盘连接已变化，未删除网盘文件");
+ const find=async()=>{const data=await baiduAPI(env,owner,"xpan/file",{method:"search",dir:cfg.folder,key:row.id,recursion:0,page:1,num:100});if(!Array.isArray(data.list))throw new HttpError(502,"无法核实网盘文件，请重试");return data.list.find(f=>f.path===expected)};
+ const file=await find();if(!file)return;
+ if(file.isdir||Number(file.size)!==row.size||job.fs_id&&String(file.fs_id)!==String(job.fs_id))throw new HttpError(409,"网盘备份文件已变化，未删除该文件");
+ const result=await baiduAPI(env,owner,"xpan/file",{method:"filemanager",opera:"delete"},{async:"0",filelist:JSON.stringify([expected])});
+ if(result.taskid||Array.isArray(result.info)&&result.info.some(info=>Number(info.errno||0)!==0))throw new HttpError(502,"网盘删除尚未成功，素材与备份记录已保留，请重试");
+ if(await find())throw new HttpError(502,"网盘文件仍存在，素材与备份记录已保留，请稍后重试");
+}
