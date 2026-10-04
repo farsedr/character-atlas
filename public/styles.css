@@ -78,3 +78,4 @@
 :is(#uploadForm,#editForm) .project-trigger{margin-top:0;height:52px;min-height:52px;padding:11px;box-sizing:border-box}
 #customNames>.file-row+ .file-row{margin-top:12px}
 @media(max-width:700px){:is(#uploadForm,#editForm) .row{grid-template-columns:minmax(0,1fr)}}
+.baidu-job{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--border,#343a44)}.baidu-job p{margin:6px 0 0}.baidu-job a{white-space:nowrap}.baidu-job strong{overflow-wrap:anywhere}

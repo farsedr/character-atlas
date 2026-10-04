@@ -58,7 +58,7 @@ async function project(env,owner,name){
  return query(env,"SELECT * FROM atlas_projects WHERE name_key=?",key).first();
 }
 async function memberships(env,owner,names){if(!Array.isArray(names)||names.length>30)throw new HttpError(400,"最多选择30个灵感集");const ps=[];for(const name of ([...new Set(names.map(clean))].length?[...new Set(names.map(clean))]:["未分组"]))ps.push(await project(env,owner,name));return {projectId:ps[0].id,projectName:ps[0].name,projectIds:ps.map(p=>p.id),projectNames:ps.map(p=>p.name)}}
-async function upload(request,env,owner){
+async function upload(request,env,owner,ctx){
  const form=await request.formData(),file=form.get("file"),preview=form.get("preview");
  if(!(file instanceof File)||!file.size||file.size>MAX_FILE)throw new HttpError(400,"请选择20MB以内PNG、JPEG、WebP");
  const bytes=await file.arrayBuffer(),b8=new Uint8Array(bytes),mime=signature(b8);if(!mime)throw new HttpError(400,"图片格式无效");
@@ -78,6 +78,7 @@ async function upload(request,env,owner){
   row=await query(env,"INSERT INTO atlas_assets (id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) SELECT ?,?,?,?,?,?,?,1,?,?,("+gapSQL+") WHERE ("+gapSQL+") IS NOT NULL RETURNING *",id,JSON.stringify(role),originalKey,previewKey,mime,filename,file.size,date,owner,owner,owner,owner,owner).first();
   if(!row)throw new HttpError(409,"编号已达到99999，请先删除不需要的素材");
  }catch(e){await Promise.allSettled([b.delete(originalKey),b.delete(previewKey)]);throw e}
+ try{const c=await baiduConnection(env,owner);if(c?.auto_backup&&c.status==="connected"){await enqueueBaidu(env,owner,row.id);ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{/* Original upload succeeds even when backup is unavailable. */}
  return json({role:bodyRole(row)},201);
 }
 async function saveRole(env,row,input,owner){
@@ -207,15 +208,17 @@ async function saveAnalysis(env,row,owner,parsed,source){
   await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
 }
 
-async function handleApi(request,env,url){
+async function handleApi(request,env,url,ctx){
  const mutation=!["GET","HEAD"].includes(request.method);
  if(mutation){
   if(request.headers.get("origin")!==url.origin)throw new HttpError(403,"请求来源无效");
   if(request.headers.get("sec-fetch-site")==="cross-site")throw new HttpError(403,"跨站请求被拒绝");
   const max=url.pathname==="/api/assets"?MAX_FILE+3*1024*1024:64000;if(Number(request.headers.get("content-length"))>max)throw new HttpError(413,"请求过大");
  }
+ if(url.pathname==="/api/storage/baidu/callback"&&request.method==="GET")return baiduCallback(request,env,url);
  if(url.pathname.startsWith("/api/auth/"))return authApi(request,env,url);
  const user=await sessionUser(request,env);if(!user)throw new HttpError(401,"请登录拾光图鉴");const owner=user.id;
+ if(url.pathname.startsWith("/api/storage/baidu"))return baiduRoutes(request,env,url,owner);
  await migrateLegacy(env);
  if(url.pathname==="/api/analysis-skill")return skillApi(request,env,owner);
  if(url.pathname==="/api/library"&&request.method==="GET"){
@@ -224,7 +227,7 @@ async function handleApi(request,env,url){
   const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,roles:rows.results.filter(r=>!r.deleted_at).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results,analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);
- if(url.pathname==="/api/assets"&&request.method==="POST")return upload(request,env,owner);
+ if(url.pathname==="/api/assets"&&request.method==="POST")return upload(request,env,owner,ctx);
  if(url.pathname==="/api/projects"&&request.method==="POST"){const b=await request.json();return json({project:await project(env,owner,b.name)},201)}
  if(url.pathname==="/api/tags"&&request.method==="POST"){
   const b=await request.json(),tags=await canonicalTags(env,[b],"manual",owner);await persistLabels(env,tags,owner);return json({tag:tags[0]},201);
@@ -238,7 +241,7 @@ async function handleApi(request,env,url){
  }
  if(url.pathname==="/api/assets/purge"&&request.method==="POST"){
  const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25份素材");for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除参数无效");let deleted=0,failed=0;
- for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;try{for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0}catch{failed++}}
+ for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;try{await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0}catch{failed++}}
  return json({deleted,failed});
  }
  if(url.pathname==="/api/assets/restore"&&request.method==="POST"){
@@ -269,7 +272,7 @@ async function handleApi(request,env,url){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  try{
-  if(url.pathname.startsWith("/api/"))return await handleApi(request,env,url);
+  if(url.pathname.startsWith("/api/"))return await handleApi(request,env,url,ctx);
   if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405});
   const key=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname),asset=STATIC[key];if(!asset)return new Response("Not found",{status:404});
   const bytes=Uint8Array.from(atob(asset.base64),c=>c.charCodeAt(0));return new Response(request.method==="HEAD"?null:bytes,{headers:{"Content-Type":asset.type,"Cache-Control":"no-cache","X-Content-Type-Options":"nosniff","Referrer-Policy":"same-origin","Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' http://127.0.0.1:4379; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'","Permissions-Policy":"camera=(), microphone=(), geolocation=()"}});

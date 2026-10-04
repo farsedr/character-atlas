@@ -73,7 +73,7 @@ function authMode(mode){
  $("#passwordLabel").textContent=mode==="recover"?"新密码":"密码";$("#authSubmit").textContent={login:"登录",register:"注册",recover:"重设密码"}[mode];
  $("#authForm").elements.password.autocomplete=mode==="login"?"current-password":"new-password";
 }
-async function loginReady(user){state.user=user;loadCodexPreference();state.filters={};state.selected.clear();state.view="library";$("#authScreen").hidden=true;$("#app").hidden=false;$("#userName").textContent=user.name+" · "+user.email;await refresh()}
+async function loginReady(user){state.user=user;globalThis.resumeBaiduBackup?.();loadCodexPreference();state.filters={};state.selected.clear();state.view="library";$("#authScreen").hidden=true;$("#app").hidden=false;$("#userName").textContent=user.name+" · "+user.email;await refresh()}
 function recoveryDialog(code){
  modal("请保存账号恢复代码",'<p class="note">这是你的独立账号恢复凭据，仅本次显示。请保存到密码管理器。忘记密码后可用邮箱和此代码恢复账号。它不会发送到邮箱，也不要分享给其他人。</p><p class="code">'+esc(code)+'</p><div class="dialog-actions"><button id="copyRecovery">复制代码</button><button id="savedRecovery" class="primary">我已保存</button></div>');
  $("#copyRecovery").onclick=async()=>{try{await navigator.clipboard.writeText(code);toast("已复制")}catch{toast("请选择代码并手动复制")}};
@@ -248,7 +248,7 @@ function uploadDialog(){
     if(entry.file.size>20*1048576)throw new Error("超过20MB");
     const f=new FormData();f.append("file",entry.file);f.append("preview",await preview(entry.file));f.append("projectNames",JSON.stringify(uploadProjects));f.append("projectName",uploadProjects[0]||"未分组");f.append("groupingMode",!auto&&fields.groupingMode==="ai"?"manual":fields.groupingMode);f.append("namingMode",!auto&&mode==="ai"?"custom":mode);f.append("name",entry.name);f.append("generationPrompt",fields.generationPrompt||"");f.append("tags",JSON.stringify(uploadTags));
     const result=await api("/api/assets",{method:"POST",body:f});ok++;
-    uploaded.push(result.role);
+    uploaded.push(result.role);globalThis.resumeBaiduBackup?.();
    }catch(error){failed++;$("#uploadError").textContent="最近一次上传错误："+entry.file.name+" · "+error.message}
   }};
   await Promise.all(Array.from({length:Math.min(3,entries.length)},uploadNext));

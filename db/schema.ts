@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 export const labels = sqliteTable("atlas_labels", {
  key:text("key").primaryKey(),dimension:text("dimension").notNull(),name:text("name").notNull(),source:text("source").notNull(),createdAt:text("created_at").notNull(),
@@ -15,3 +15,6 @@ export const limits=sqliteTable("atlas_limits",{key:text("key").primaryKey(),cou
 export const projects=sqliteTable("atlas_projects",{id:text("id").primaryKey(),ownerId:text("owner_id").notNull(),name:text("name").notNull(),nameKey:text("name_key").notNull().unique(),createdAt:text("created_at").notNull()});
 
 export const analysisSkills=sqliteTable("atlas_analysis_skills",{ownerId:text("owner_id").primaryKey(),name:text("name").notNull(),content:text("content").notNull(),updatedAt:text("updated_at").notNull()});
+export const baiduConnections=sqliteTable("atlas_baidu_connections",{ownerId:text("owner_id").primaryKey(),id:text("id").notNull(),baiduUk:text("baidu_uk").notNull(),displayName:text("display_name").notNull(),tokenCipher:text("token_cipher").notNull(),expiresAt:integer("expires_at").notNull(),status:text("status").notNull(),autoBackup:integer("auto_backup").notNull().default(0),updatedAt:text("updated_at").notNull()});
+export const baiduOauth=sqliteTable("atlas_baidu_oauth",{stateHash:text("state_hash").primaryKey(),ownerId:text("owner_id").notNull(),expiresAt:integer("expires_at").notNull()});
+export const baiduBackups=sqliteTable("atlas_baidu_backups",{assetId:text("asset_id").primaryKey(),ownerId:text("owner_id").notNull(),connectionId:text("connection_id").notNull(),remotePath:text("remote_path").notNull(),status:text("status").notNull(),uploadId:text("upload_id").notNull().default(""),blockList:text("block_list").notNull().default("[]"),neededParts:text("needed_parts").notNull().default("[]"),nextPart:integer("next_part").notNull().default(0),fsId:text("fs_id").notNull().default(""),error:text("error").notNull().default(""),leaseId:text("lease_id").notNull().default(""),leaseUntil:integer("lease_until").notNull().default(0),updatedAt:text("updated_at").notNull()},t=>[index("atlas_baidu_owner_queue").on(t.ownerId,t.connectionId,t.status,t.leaseUntil)]);
