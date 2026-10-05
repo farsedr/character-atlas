@@ -288,7 +288,7 @@ async function runUploadTask(job,retry=false){
   }catch(error){item.status="准备失败";item.error=error.message}finally{taskChanged(job)}}};
   await Promise.all(Array.from({length:Math.min(3,uploads.length)},uploadOne));
   if(job.auto&&allowed()&&!job.stopRequested){
-   job.status="正在分析";let cursor=0;const jobs=job.items.filter(i=>i.role&&i.status!=="分析完成"),limit=job.choice==="api"?job.concurrency:Math.min(job.concurrency,codexLocal.maxConcurrent||1);
+   job.status="模型分析";let cursor=0;const jobs=job.items.filter(i=>i.role&&i.status!=="分析完成"),limit=job.choice==="api"?job.concurrency:Math.min(job.concurrency,codexLocal.maxConcurrent||1);
    const analyzeOne=async()=>{while(cursor<jobs.length&&allowed()&&!job.stopRequested){const item=jobs[cursor++];item.status="正在分析";item.error="";taskChanged(job);try{item.role=(await analyzeAsset(item.role,job.choice)).role;item.status="分析完成"}catch(error){item.status="分析失败";item.error=error.message}finally{taskChanged(job)}}};
    await Promise.all(Array.from({length:Math.min(limit,jobs.length)},analyzeOne));
   }
@@ -319,8 +319,8 @@ async function saveUploadTask(job){
 function paintBackgroundTasks(){
  const body=$("#backgroundTasksBody");if(!body)return;
  const jobs=ownedUploadJobs().sort((a,b)=>Number(b.active)-Number(a.active)||b.createdAt-a.createdAt);
- body.innerHTML='<p class="form-note">收起任务窗口不影响处理。分析完成后仍需点击保存；取消只删除该批次临时数据。</p>'+jobs.map(j=>'<div class="task-item"><div><strong>'+esc(new Date(j.createdAt).toLocaleString("zh-CN"))+' · '+j.items.length+' 张素材</strong><p class="form-note">'+esc(j.status)+'</p></div><button type="button" data-open-upload="'+esc(j.id)+'">查看任务</button></div>').join("")+(jobs.length?'':'<p class="muted">暂无上传任务</p>')+(backgroundBaidu?'<div class="task-item"><div><strong>百度网盘备份</strong><p class="form-note">等待 '+(backgroundBaidu.counts.pending||0)+' · 完成 '+(backgroundBaidu.counts.done||0)+' · 失败 '+(backgroundBaidu.counts.failed||0)+'</p></div><button type="button" id="taskBaiduDetails">查看备份</button></div>':'')+'<div class="dialog-actions"><button type="button" id="refreshTasks">刷新任务</button></div>';
- body.querySelectorAll("[data-open-upload]").forEach(b=>b.onclick=()=>openUploadTask(uploadJobs.get(b.dataset.openUpload)));$("#refreshTasks").onclick=showBackgroundTasks;if($("#taskBaiduDetails"))$("#taskBaiduDetails").onclick=()=>$("#storageButton").click();
+ body.innerHTML='<p class="form-note">收起任务窗口不影响处理。分析完成后仍需点击保存；取消只删除该批次临时数据。</p>'+jobs.map(j=>{const completed=j.items.filter(i=>i.status==="分析完成").length,failed=j.items.filter(i=>i.error).length,pending=j.auto?j.items.length-completed-failed:0;return '<div class="task-item"><div><strong>'+esc(new Date(j.createdAt).toLocaleString("zh-CN"))+' · '+j.items.length+' 张素材</strong><p class="form-note">'+(j.auto?'模型分析 · 等待 '+pending+' · 完成 '+completed+' · 失败 '+failed:esc(j.status))+'</p></div><button type="button" data-open-upload="'+esc(j.id)+'">查看任务</button></div>'}).join("")+(jobs.length?'':'<p class="muted">暂无上传任务</p>')+(backgroundBaidu?.tasks||[]).map(t=>'<div class="task-item"><div><strong>网盘备份</strong><p class="form-note">等待 '+(t.counts.pending||0)+' · 完成 '+(t.counts.done||0)+' · 失败 '+(t.counts.failed||0)+'</p>'+(t.createdAt?'<p class="form-note">'+esc(new Date(t.createdAt).toLocaleString("zh-CN"))+'</p>':'')+'</div><button type="button" data-backup-task="'+esc(t.id)+'">查看备份</button></div>').join('')+'<div class="dialog-actions"><button type="button" id="refreshTasks">刷新任务</button></div>';
+ body.querySelectorAll("[data-open-upload]").forEach(b=>b.onclick=()=>openUploadTask(uploadJobs.get(b.dataset.openUpload)));$("#refreshTasks").onclick=showBackgroundTasks;body.querySelectorAll("[data-backup-task]").forEach(b=>b.onclick=()=>baiduDialog(b.dataset.backupTask));
 }
 async function showBackgroundTasks(){
  modal("后台任务",'<div id="backgroundTasksBody"></div>');$("#modal").dataset.kind="background-tasks";paintBackgroundTasks();

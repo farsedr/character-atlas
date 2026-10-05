@@ -48,15 +48,21 @@ async function baiduCallback(request,env,url){
   await query(env,"INSERT INTO atlas_baidu_connections (owner_id,id,baidu_uk,display_name,token_cipher,expires_at,status,auto_backup,updated_at) VALUES (?,?,?,?,?,?,'connected',0,?) ON CONFLICT(owner_id) DO UPDATE SET token_cipher=excluded.token_cipher,expires_at=excluded.expires_at,status='connected',display_name=excluded.display_name,updated_at=excluded.updated_at",user.id,old?.id||crypto.randomUUID(),String(info.uk),String(info.netdisk_name||info.baidu_name||"百度网盘账户").slice(0,100),cipher,Date.now()+Number(data.expires_in)*1000,date).run();return baiduRedirect(cfg.origin,"connected");
  }catch{return baiduRedirect(cfg.origin,"failed")}
 }
-async function baiduStatus(env,owner){
+async function baiduStatus(env,owner,taskId=""){
  const c=await baiduConnection(env,owner),stats=await query(env,"SELECT status,COUNT(*) AS n FROM atlas_baidu_backups WHERE owner_id=? GROUP BY status",owner).all();
- const recent=await query(env,"SELECT b.asset_id,b.status,b.error,b.remote_path,b.next_part,b.block_list,b.updated_at,a.body FROM atlas_baidu_backups b JOIN atlas_assets a ON a.id=b.asset_id AND a.owner_id=b.owner_id WHERE b.owner_id=? ORDER BY b.updated_at DESC LIMIT 20",owner).all();
- return {configured:!!baiduSettings(env),callback:baiduSettings(env)?.callback||null,connection:c?{name:c.display_name,status:c.status,autoBackup:!!c.auto_backup,updatedAt:c.updated_at}:null,counts:Object.fromEntries(stats.results.map(r=>[r.status,r.n])),recent:recent.results.map(r=>({identity:r.asset_id,name:JSON.parse(r.body).name,status:r.status,error:r.error,path:r.remote_path,parts:JSON.parse(r.block_list||"[]").length,completedParts:r.next_part,updatedAt:r.updated_at}))};
+ const grouped=await query(env,"SELECT task_id,status,COUNT(*) AS n,MIN(task_created_at) AS created_at FROM atlas_baidu_backups WHERE owner_id=? AND task_id<>'' GROUP BY task_id,status",owner).all(),tasks=[];
+ for(const row of grouped.results){let task=tasks.find(t=>t.id===row.task_id);if(!task){task={id:row.task_id,createdAt:row.created_at,counts:{pending:0,done:0,failed:0}};tasks.push(task)}task.counts[row.status]=row.n}
+ tasks.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+ const legacy=await query(env,"SELECT status,COUNT(*) AS n FROM atlas_baidu_backups WHERE owner_id=? AND task_id='' AND status<>'done' GROUP BY status",owner).all();
+ if(legacy.results.length)tasks.push({id:"legacy-active",createdAt:"",counts:Object.fromEntries(legacy.results.map(r=>[r.status,r.n]))});
+ const selected=taskId?tasks.find(t=>t.id===taskId):tasks[0],scope=selected?.id||"",where=scope==="legacy-active"?" AND b.task_id='' AND b.status<>'done'":" AND b.task_id=?",args=scope==="legacy-active"?[owner]:[owner,scope];
+ const recent=await query(env,"SELECT b.asset_id,b.status,b.error,b.remote_path,b.next_part,b.block_list,b.updated_at,a.body FROM atlas_baidu_backups b JOIN atlas_assets a ON a.id=b.asset_id AND a.owner_id=b.owner_id WHERE b.owner_id=?"+where+" ORDER BY b.updated_at DESC LIMIT 20",...args).all();
+ return {configured:!!baiduSettings(env),callback:baiduSettings(env)?.callback||null,connection:c?{name:c.display_name,status:c.status,autoBackup:!!c.auto_backup,updatedAt:c.updated_at}:null,counts:Object.fromEntries(stats.results.map(r=>[r.status,r.n])),tasks,taskId:scope,taskCounts:selected?.counts||{pending:0,done:0,failed:0},recent:recent.results.map(r=>({identity:r.asset_id,name:JSON.parse(r.body).name,status:r.status,error:r.error,path:r.remote_path,parts:JSON.parse(r.block_list||"[]").length,completedParts:r.next_part,updatedAt:r.updated_at}))};
 }
 async function enqueueBaidu(env,owner,identity){
  const c=await baiduConnection(env,owner);if(!c||c.status!=="connected"||!baiduSettings(env))return;
- const cfg=baiduSettings(env),date=new Date().toISOString();
- await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,\'$.uploadDraft\'),0)=0"+(identity?" AND id=?":""),c.id,cfg.folder,date,owner,...(identity?[identity]:[])).run();
+ const cfg=baiduSettings(env),date=new Date().toISOString(),taskId=crypto.randomUUID();
+ await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (task_id,task_created_at,asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT "+(identity?"COALESCE(NULLIF(json_extract(body,'$.uploadBatch'),''),?)":"?")+",?,id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,\'$.uploadDraft\'),0)=0"+(identity?" AND id=?":""),taskId,date,c.id,cfg.folder,date,owner,...(identity?[identity]:[])).run();
 }
 // One resumable stage per request. A lease prevents two devices uploading the same part.
 async function baiduStep(env,owner){
@@ -95,7 +101,7 @@ async function baiduBackupDownload(env,owner,identity){
 }
 async function baiduRoutes(request,env,url,owner){
  const action=url.pathname.slice("/api/storage/baidu".length);
- if(action===""&&request.method==="GET")return json(await baiduStatus(env,owner));
+ if(action===""&&request.method==="GET"){const taskId=new URL(request.url).searchParams.get("task")||"";if(taskId.length>100)throw new HttpError(400,"任务标识无效");return json(await baiduStatus(env,owner,taskId))}
  if(action==="/connect"&&request.method==="POST"){
   const cfg=baiduSettings(env);if(!cfg)throw new HttpError(503,"等待网站管理员配置百度网盘应用，请查看申请教程");if(url.origin!==cfg.origin)throw new HttpError(400,"请从正式网站连接百度网盘");
   await query(env,"DELETE FROM atlas_baidu_oauth WHERE expires_at<? OR owner_id=?",Date.now(),owner).run();const state=token();await query(env,"INSERT INTO atlas_baidu_oauth (state_hash,owner_id,expires_at) VALUES (?,?,?)",await hash(state),owner,Date.now()+600000).run();const u=new URL("https://openapi.baidu.com/oauth/2.0/authorize");for(const[k,v]of Object.entries({response_type:"code",client_id:env.BAIDU_CLIENT_ID,redirect_uri:cfg.callback,scope:"basic,netdisk",state}))u.searchParams.set(k,v);return json({url:u.href});
