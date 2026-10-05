@@ -75,3 +75,14 @@ dialog::backdrop{background:transparent!important;backdrop-filter:none!important
 #backgroundTasksBody>.form-note:first-child,#uploadTaskBody>.form-note:first-child{margin-top:0;padding-top:4px;line-height:1.8;white-space:normal;overflow-wrap:anywhere}
 
 .task-item-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;max-width:55%}.task-item-actions .form-note{margin:0}@media(max-width:700px){.task-item{align-items:flex-start;flex-direction:column}.task-item-actions{justify-content:flex-start;max-width:100%}}
+
+/* Keep status messages above native modal dialogs. */
+#toast{position:fixed;inset:auto auto 24px 50%;transform:translateX(-50%);margin:0;width:max-content;max-width:calc(100vw - 32px);padding:12px 20px;line-height:1.6;text-align:center;overflow-wrap:anywhere;z-index:2147483647;pointer-events:none}
+#toast::backdrop{background:transparent;pointer-events:none}
+.selection-bar{flex-wrap:wrap;align-items:center;row-gap:12px}.selection-bar>.check,.selection-bar>#selectedCount{margin:0;line-height:1.5}.check{align-items:center;line-height:1.5}.check input[type=checkbox],.project-option input[type=checkbox]{width:16px;height:16px;padding:0;margin:0;flex-shrink:0;vertical-align:middle}
+.dialog-actions{align-items:flex-end;flex-wrap:wrap;margin-bottom:8px}.dialog-actions>label{margin:0;flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:7px;line-height:1.5}.dialog-actions>label select{margin:0;width:100%}
+.dialog-actions>button,.dialog-actions>a,.task-item-actions>button,.selection-bar>button,.card-actions>button,.card-actions>a{display:inline-flex;align-items:center;justify-content:center;line-height:1.5;min-height:44px;text-align:center;white-space:nowrap;box-sizing:border-box}.task-item-actions>button{min-width:68px;padding:10px 14px}
+#modalContent>.dialog-body{padding-bottom:8px}.info-grid dt,.info-grid dd{margin:0;line-height:1.6}.detail-image-trigger{display:block;width:100%;height:100%;min-height:0;padding:0;border:0;cursor:zoom-in}.detail-image-trigger:focus-visible{outline:2px solid #b8d6ff;outline-offset:-3px}
+#imageViewer{position:fixed;inset:0;margin:0;width:100vw;max-width:none;height:100dvh;max-height:none;padding:0;border:0;border-radius:0;background:rgba(7,12,22,.95)!important;backdrop-filter:none!important;overflow:hidden;color:#fff}
+#imageViewer::backdrop{background:rgba(7,12,22,.9)!important}.image-viewer-stage{display:flex;width:100%;height:100%;align-items:center;justify-content:center;padding:64px 20px 24px}.image-viewer-stage img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+#closeImageViewer{position:absolute;top:16px;right:20px;z-index:1;width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center;font-size:26px;line-height:1;color:#fff;background:rgba(20,30,46,.7);border:1px solid #cbdcf566}
