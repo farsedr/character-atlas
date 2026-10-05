@@ -44,7 +44,7 @@ dialog{background:rgba(16,27,44,.78)!important;backdrop-filter:blur(9px)}
 #app .primary,#modal .primary{color:#f0e9ff!important}
 #app,#modal,#filterPopover{color:#edf3ff;text-shadow:0 1px 4px #000,0 2px 8px #0007}
 #app .muted,#app .card-description,#app .card-meta,#app .chip{color:#dce6f5!important}
-#authScreen input,#authScreen button,#authScreen .entrance-symbol,#authScreen .entrance-edition{border-color:#cbdcf566!important}
+#authScreen input,#authScreen button,#authScreen .entrance-symbol{border-color:#cbdcf566!important}
 #authScreen .auth-card{border-left:1px solid #cbdcf566}
 #authScreen .auth-links{border-top-color:#cbdcf566!important}
 #authScreen #rememberPassword[aria-pressed="true"]{border-color:#dec6ff99!important;color:#e4caff!important}
