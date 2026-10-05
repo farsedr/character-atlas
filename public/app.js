@@ -67,8 +67,8 @@ async function bindSkillControls(){const render=async()=>{const result=await api
 function toast(s){$("#toast").textContent=s;$("#toast").style.display="block";clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>$("#toast").style.display="none",5000)}
 function modal(title,body){$("#modal").dataset.kind="";$("#modalContent").innerHTML='<div class="dialog-head"><h2>'+esc(title)+'</h2><button id="closeModal" aria-label="关闭">×</button></div><div class="dialog-body">'+body+'</div>';$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal()}
 function showAuth(){codexLocal.token="";codexLocal.connected=false;codexLocal.models=[];codexLocal.providers={};closeFilterPopover();state.user=null;state.roles=[];state.labels=[];state.projects=[];state.recycle=[];state.selected.clear();state.recycleSelected.clear();$("#app").hidden=true;$("#authScreen").hidden=false;$("#modal").close();$("#userName").textContent="";$("#content").innerHTML=""}
-const sceneStyle=document.createElement("link");sceneStyle.rel="stylesheet";sceneStyle.href="/scene.css";document.head.append(sceneStyle);
-const scene=document.createElement("div");scene.className="character-scene";scene.setAttribute("aria-hidden","true");scene.innerHTML='<div class="scene-image is-active"></div><div class="scene-image"></div><div class="scene-glow"></div><div class="scene-sparkles"></div>';document.body.prepend(scene);
+// Scene styles load with the document to avoid the old login theme flashing.
+const scene=document.querySelector(".character-scene");
 const scenePictures=["/scene-palace.png","/scene-blue.png","/scene-gold.png","/scene-silver.png","/scene-qingxiao-portrait.png","/scene-qingxiao-full.png"];
 const sceneLayers=scene.querySelectorAll(".scene-image");let sceneIndex=0,sceneChanging=false;sceneLayers[0].style.backgroundImage='url("'+scenePictures[0]+'")';
 scenePictures.slice(1).forEach(src=>{const preload=new Image();preload.src=src});
@@ -247,6 +247,18 @@ function uploadDialog(){
 if(codexLocal.connected&&codexLocal.maxConcurrent<5){const hint=document.createElement("p");hint.className="form-note";hint.innerHTML='当前连接包最高支持同时分析'+codexLocal.maxConcurrent+'张。<a href="/share/local-connector.zip">下载新版连接包</a>，关闭旧程序并启动新版、重新配对后可选择同时分析1–5张。';$("#uploadProgress").before(hint)}
 const concurrencyField=document.createElement("label");concurrencyField.innerHTML='分析并发<select id="analysisConcurrency" name="analysisConcurrency">'+[1,2,3,4,5].map(n=>'<option value="'+n+'">同时分析 '+n+' 张</option>').join('')+'</select><span class="form-note">默认3张；可选1–5张。限流时自动降为逐张重试。旧连接包按实际支持数量执行，请更新连接包以使用5张。</span>';$("#uploadError").before(concurrencyField);$("#analysisConcurrency").value=localStorage.getItem("atlas-analysis-concurrency")||"3";
  const stop=document.createElement("button");stop.id="stopAnalysis";stop.type="button";stop.className="danger";stop.textContent="停止分析";stop.hidden=true;$("#startUpload").before(stop);
+ const failedAnalysis=new Set();
+ const retry=document.createElement("button");retry.id="retryAnalysis";retry.type="button";retry.textContent="重试分析";retry.hidden=true;$("#startUpload").before(retry);
+ retry.onclick=async()=>{
+  retry.disabled=true;$("#startUpload").disabled=true;$("#closeModal").disabled=true;$("#uploadError").textContent="";
+  let retryStopped=false;$("#stopAnalysis").hidden=false;$("#stopAnalysis").disabled=false;$("#stopAnalysis").textContent="停止分析";$("#stopAnalysis").onclick=()=>{retryStopped=true;$("#stopAnalysis").disabled=true};
+  try{
+   await refresh(true);const jobs=[...failedAnalysis].map(id=>state.roles.find(r=>r.identity===id)).filter(Boolean);let cursor=0,completed=0;
+   const choice=$("#uploadAnalysisModel")?.value,requested=Number($("#analysisConcurrency").value)||3,limit=choice==="api"?requested:Math.min(requested,codexLocal.maxConcurrent);
+   const run=async()=>{while(cursor<jobs.length&&!retryStopped){const role=jobs[cursor++];try{await analyzeAsset(role,choice);failedAnalysis.delete(role.identity)}catch(error){$("#uploadError").textContent=role.name+" · "+error.message}finally{completed++;$("#uploadProgress").textContent="重试分析："+completed+" / "+jobs.length+"；仍有 "+failedAnalysis.size+" 张分析失败"}}};
+   await Promise.all(Array.from({length:Math.min(limit,jobs.length)},run));await refresh(true);
+  }catch(error){$("#uploadError").textContent=error.message}finally{retry.hidden=!failedAnalysis.size;retry.disabled=false;$("#startUpload").disabled=false;$("#closeModal").disabled=false;$("#stopAnalysis").hidden=true}
+ };
  wireTagOptions();const commitUploadTag=wireManualTags("#uploadError");
  const choose=(files)=>{
   for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const entry=state.files[Number(input.dataset.customName)];if(entry)entry.name=input.value}
@@ -295,7 +307,7 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
     const job=queue[cursor++];active++;job.status=job.attempts?"重试分析":"正在分析";show();
     try{const analyzed=await analyzeAsset(job.role,analysisChoice);if(analyzed.role){const at=state.roles.findIndex(r=>r.identity===analyzed.role.identity);if(at<0)state.roles.push(analyzed.role);else state.roles[at]=analyzed.role}job.status="分析完成";done++;analysed++}
     catch(error){if(!stopped&&error.status===429&&job.attempts<2){job.attempts++;limit=1;cooldown=Math.max(cooldown,Date.now()+job.attempts*3000);job.status="限流，等待重试";queue.push(job)}
-     else{aiFailed++;done++;job.status="失败："+error.message;$("#uploadError").textContent="最近一次分析错误："+job.role.name+" · "+error.message}}
+     else{aiFailed++;done++;failedAnalysis.add(job.role.identity);job.status="失败："+error.message;$("#uploadError").textContent="最近一次分析错误："+job.role.name+" · "+error.message}}
     finally{active--;show()}
    }};
    await Promise.all(Array.from({length:Math.min(concurrency,jobs.length)},worker));
@@ -303,7 +315,8 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
   await refresh(true);$("#closeModal").disabled=false;
   $("#uploadProgress").textContent="完成：上传成功 "+ok+" 张，上传失败 "+failed+" 张，分析失败 "+aiFailed+" 张。失败项请重新选择或在素材详情重试。";
   if(stopped)$("#uploadProgress").textContent="已停止分析：上传成功 "+ok+" 张，分析完成 "+analysed+" 张，分析失败 "+aiFailed+" 张，未分析 "+Math.max(0,ok-analysed-aiFailed)+" 张。已完成结果保留；其余素材保留上传时填写的信息。";
-  $("#stopAnalysis").hidden=true;
+  $("#stopAnalysis").hidden=true;retry.hidden=!failedAnalysis.size;retry.disabled=false;
+  if($("#uploadAnalysisModel"))$("#uploadAnalysisModel").disabled=false;$("#analysisConcurrency").disabled=false;
   $("#startUpload").textContent="完成";$("#startUpload").disabled=false;$("#startUpload").type="button";$("#startUpload").onclick=()=>$("#modal").close();
  };
 }

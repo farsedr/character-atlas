@@ -63,6 +63,13 @@ const uploadCall=calls.filter(c=>c.path==="/api/assets").at(-1);assert.equal(upl
 assert(calls.some(c=>c.path==="http://127.0.0.1:4379/analyze"&&c.opts.headers["X-Atlas-Model"]===localChoice.split(":")[1]));click("#closeModal");
 }
 click("#uploadButton");
+assert.equal(d.querySelector("#sort").value,"id");assert(d.querySelector('head link[href="/scene.css"]'));assert.equal(d.querySelectorAll(".character-scene").length,1);
+const originalFetch=w.fetch;let rejectOnce=true;w.fetch=async(path,opts)=>{if(path==="http://127.0.0.1:4379/analyze"&&rejectOnce){rejectOnce=false;return{ok:false,status:502,json:async()=>({error:"模型返回格式不完整：缺少 dimensions"})}}return originalFetch(path,opts)};
+roles=roles.filter(r=>r.identity!=="upload");roles.push({...role,id:"CHAR-90000",identity:"upload",imageUrl:"/api/assets/CHAR-90000/preview?v=upload"});
+Object.defineProperty(d.querySelector("#fileInput"),"files",{configurable:true,value:[new w.File(["pixels"],"retry-test.png",{type:"image/png"})]});change("#fileInput");d.querySelector("#uploadForm").dispatchEvent(new w.Event("submit",{bubbles:true,cancelable:true}));
+for(let i=0;i<100&&d.querySelector("#startUpload").type!=="button";i++)await wait();assert.equal(d.querySelector("#retryAnalysis").hidden,false);assert.equal(d.querySelector("#retryAnalysis").disabled,false);
+const uploadsBeforeRetry=calls.filter(c=>c.path==="/api/assets").length;click("#retryAnalysis");for(let i=0;i<100&&d.querySelector("#retryAnalysis").disabled;i++)await wait();assert.equal(d.querySelector("#retryAnalysis").hidden,true,d.querySelector("#uploadError").textContent+" | "+d.querySelector("#uploadProgress").textContent);assert.equal(calls.filter(c=>c.path==="/api/assets").length,uploadsBeforeRetry);w.fetch=originalFetch;click("#closeModal");click("#uploadButton");
+
 const batchFiles=Array.from({length:3},(_,i)=>new w.File(["pixels"],"multi-"+i+".png",{type:"image/png",lastModified:1234}));
 Object.defineProperty(d.querySelector("#fileInput"),"files",{configurable:true,value:batchFiles.slice(0,2)});change("#fileInput");
 d.querySelector('[data-custom-name="0"]').value="kept-custom-name";
