@@ -1,4 +1,12 @@
 # 输出契约
+
+## 强制字段类型
+应用将逐字段校验。禁止改名、遗漏字段、返回自己的输出结构，禁止把数字或布尔值加引号。空数组也必须保留，不能改为 null、空字符串或对象。
+confidence：JSON 数字（如 0.95），不能是 "0.95" 或 "95%"。
+uncertain：JSON 布尔值 true / false，不能是 "false"、"确定"、0 或 1。
+secondary、evidence：字符串数组；一项也必须写成数组。primary：字符串，仅 vibe 可用数组。
+gender_presentation 的合法示例：{"primary":"女性化呈现","secondary":[],"confidence":0.9,"evidence":["可见的人物外观呈女性化视觉表达"],"uncertain":false}。示例只说明格式，不是当前图片的结论。
+输出前逐项检查全部24维是否完整，字段名、类型及未知/不适用约定是否正确；不得为通过校验编造视觉结论。输出契约优先于角色提示词等其他 Skill 的示例格式。
 顶层字段：taxonomy_version="1.0.0"、shortName（图库1–4汉字）、imagePrompt（完整中文提示词）、collectionNames（匹配的灵感集名称数组）、collectionName（兼容字段，数组以顿号连接）、summary、primary_subject、secondary_subjects、dimensions、analysis_quality。
 dimensions 含 taxonomy.json 的全部24个id。
 每维：{"primary":"最具体标签或unknown或not_applicable","secondary":[],"confidence":0.9,"evidence":["对应可见细节"],"uncertain":false}。

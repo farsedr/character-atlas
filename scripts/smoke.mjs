@@ -76,7 +76,13 @@ for(const protocol of ["openai","responses","anthropic","gemini"]){
 }
 
 let repairCalls=0;globalThis.fetch=async()=>{repairCalls++;const output=structuredClone(analysis);if(repairCalls===1)delete output.dimensions.material;return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(output)}]}}]})};
+r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,502);assert.equal(repairCalls,1);assert((await r.json()).error.includes("缺少"));aiRole=(await (await call("/api/library",{},ownerCookie)).json()).roles.find(t=>t.identity===aiRole.identity);
 r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,200);assert.equal(repairCalls,2);aiRole=(await r.json()).role;assert.equal(Object.keys(aiRole.analysisResult.dimensions).length,24);
+for(const [field,value,expected] of [["confidence","0.9","confidence 应为数字"],["uncertain","false","uncertain 应为布尔值"],["secondary","女性","secondary 应为字符串数组"],["evidence",{},"evidence 应为字符串数组"]]){
+ let calls=0;globalThis.fetch=async()=>{calls++;const invalid=structuredClone(analysis);invalid.dimensions.gender_presentation[field]=value;return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(invalid)}]}}]})};
+ r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,502);assert.equal(calls,1);assert((await r.json()).error.includes("gender_presentation."+expected));aiRole=(await (await call("/api/library",{},ownerCookie)).json()).roles.find(t=>t.identity===aiRole.identity);
+}
+
 globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:JSON.stringify({...analysis,taxonomy_version:"wrong"})}]}}]});r=await post(path(aiRole,"analyze"),{},ownerCookie);assert.equal(r.status,502);assert((await r.json()).error.includes("taxonomy_version"));aiRole=(await (await call("/api/library",{},ownerCookie)).json()).roles.find(t=>t.identity===aiRole.identity);
 
 r=await post(path(localUploaded,"analysis-result"),{identity:localUploaded.identity,revision:localUploaded.revision,result:analysis,model:"gpt-6-luna"},ownerCookie);assert.equal(r.status,200);localUploaded=(await r.json()).role;assert(localUploaded.tags.some(t=>t.name==="手动画风"&&t.source==="manual"));assert(localUploaded.tags.some(t=>t.name==="手动发型"&&t.source==="manual"));assert.equal(localUploaded.name,analysis.shortName);
