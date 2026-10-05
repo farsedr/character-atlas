@@ -70,7 +70,8 @@ async function draftMemberships(env,owner,names){
 }
 async function uploadBatch(request,env,owner,ctx){
  const b=await request.json();if(typeof b.batch!=="string"||!/^[a-zA-Z0-9-]{8,100}$/.test(b.batch)||!["save","cancel"].includes(b.action))throw new HttpError(400,"上传批次无效");
- const all=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=?",owner,b.batch).all()).results;
+ if(b.identities!==undefined&&(!Array.isArray(b.identities)||!b.identities.length||b.identities.length>1000||b.identities.some(id=>typeof id!=="string"||id.length>100)))throw new HttpError(400,"请选择有效的素材");
+ const all=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=?",owner,b.batch).all()).results.filter(r=>!b.identities||b.identities.includes(r.id));
  const drafts=all.filter(r=>JSON.parse(r.body).uploadDraft);
  if(drafts.some(r=>JSON.parse(r.body).analysisStatus==="analyzing"&&Date.now()-(JSON.parse(r.body).analysisStarted||0)<90000))throw new HttpError(409,"仍有分析请求正在执行，请稍后再"+(b.action==="save"?"保存":"取消"));
  if(b.action==="cancel"){
@@ -78,7 +79,7 @@ async function uploadBatch(request,env,owner,ctx){
   return json({deleted,failed:errors.length,errors});
  }
  for(const row of drafts){const role=JSON.parse(row.body),groups=await memberships(env,owner,role.projectNames||[role.projectName||"未分组"]);await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",JSON.stringify({...role,...groups}),row.id,owner,row.revision).run()}
- const saved=(await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.uploadDraft',0),deleted_at=NULL,revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1 RETURNING *",owner,b.batch).all()).results;
+ const saved=drafts.length?(await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.uploadDraft',0),deleted_at=NULL,revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1 AND id IN ("+drafts.map(()=>"?").join(",")+") RETURNING *",owner,b.batch,...drafts.map(r=>r.id)).all()).results:[];
  const committed=all.filter(r=>!JSON.parse(r.body).uploadDraft).concat(saved);let backupQueued=false,backupError="";
  for(const row of committed)await persistLabels(env,JSON.parse(row.body).tags||[],owner);
  try{const connection=await baiduConnection(env,owner);if(connection?.status==="connected"){for(const row of committed)await enqueueBaidu(env,owner,row.id);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError="素材已保存，网盘备份启动失败；请在云盘连接中重试备份"}
@@ -98,7 +99,7 @@ async function upload(request,env,owner,ctx){
  const requestedGrouping=form.get("groupingMode"),requestedProject=String(form.get("projectName")||"未分组");const groupingMode=requestedGrouping==="manual"||(!requestedGrouping&&requestedProject!=="未分组")?"manual":"ai";const p=uploadDraft?{name:groupingMode==="ai"?"未分组":clean(requestedProject)}:await project(env,owner,groupingMode==="ai"?"未分组":String(form.get("projectName")||"未分组"));
  let names;try{names=JSON.parse(String(form.get("projectNames")||"null"))}catch{throw new HttpError(400,"灵感集格式无效")}const groups=await (uploadDraft?draftMemberships:memberships)(env,owner,groupingMode==="manual"?(names||[p.name]):[p.name]);
  const id=crypto.randomUUID(),originalKey="originals/"+id,previewKey="previews/"+id,date=new Date().toISOString();
- if(!uploadDraft)await persistLabels(env,tags,owner);const role={...(uploadDraft?{uploadDraft,uploadBatch,uploadAutoAnalyze:form.get("uploadAutoAnalyze")==="1"}:{}),name,description:"",tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
+ if(!uploadDraft)await persistLabels(env,tags,owner);const role={...(uploadDraft?{uploadDraft,uploadBatch,uploadAutoAnalyze:form.get("uploadAutoAnalyze")==="1"}:{}),name,description:String(form.get("description")||"").slice(0,1200),tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
  const b=bucket(env);let row;
  try{
   await b.put(originalKey,bytes,{httpMetadata:{contentType:mime}});await b.put(previewKey,previewBytes,{httpMetadata:{contentType:"image/jpeg"}});

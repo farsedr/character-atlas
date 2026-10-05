@@ -70,7 +70,8 @@ export async function run(image,exe,options={model:MODEL,reasoning:"low"},custom
   return JSON.parse(data);
  }finally{
   const absolute=path.resolve(dir);if(!absolute.startsWith(path.resolve(base)+path.sep))throw Error("临时路径无效");
-  await fs.rm(absolute,{recursive:true,force:true});
+  // Windows may temporarily lock CLI files after the process exits. Cleanup must not discard a valid analysis result.
+  await fs.rm(absolute,{recursive:true,force:true,maxRetries:3,retryDelay:150}).catch(()=>{});
  }
 }
 export function createConnector({token,analyze,port=PORT,getModels=loadModels}){

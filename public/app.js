@@ -198,12 +198,13 @@ function wireManualTags(errorSelector){
  $("#addTag").onclick=commitPendingTag;$("#tagName").onkeydown=e=>{if(e.key==="Enter"&&!e.isComposing){e.preventDefault();commitPendingTag()}};
  return commitPendingTag;
 }
-function editRole(r){
+function editRole(r,uploadContext=null){
  state.editTags=r.tags.map(t=>({...t}));
  modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><div><label>灵感集</label>'+projectPicker("editProjects",roleProjects(r))+'</div></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">输入或选择子标签，按 Enter 或点击添加。直接保存也会收录输入的新标签。点击已有标签可移除。</p><p id="formError" class="error"></p><div class="dialog-actions">'+analysisModelSelect("editAnalysisModel")+'<button type="button" id="editAnalyze" '+(!canAnalyze()?"disabled":"")+'>模型分析</button><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
+ if(uploadContext){$("#editAnalyze").hidden=true;$("#editAnalysisModel").hidden=true;$("#saveRole").textContent="应用编辑";const note=document.createElement("p");note.className="form-note";note.textContent="编辑只更新这张素材的草稿，返回任务后点击保存才进入素材库。";$("#editForm").prepend(note);const back=document.createElement("button");back.type="button";back.textContent="返回任务";back.onclick=()=>openUploadTask(uploadContext.job);$("#saveRole").before(back)}
  wireProjects("editProjects");
  const commitPendingTag=wireManualTags("#formError");
- $("#editForm").onsubmit=async e=>{e.preventDefault();if(!commitPendingTag())return;$("#saveRole").disabled=true;try{const b=Object.fromEntries(new FormData(e.currentTarget));const result=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...b,projectNames:selectedProjects("editProjects"),groupingMode:"manual",identity:r.identity,revision:r.revision,tags:state.editTags})});await refresh(true);details(result.role);toast("素材已保存")}catch(e){$("#formError").textContent=e.message;$("#saveRole").disabled=false}};
+ $("#editForm").onsubmit=async e=>{e.preventDefault();if(!commitPendingTag())return;$("#saveRole").disabled=true;try{const b=Object.fromEntries(new FormData(e.currentTarget));if(uploadContext&&!uploadContext.item.role){Object.assign(uploadContext.item,b,{tags:state.editTags.map(t=>({...t})),projectNames:selectedProjects("editProjects"),edited:true});openUploadTask(uploadContext.job);toast("草稿已更新");return}const result=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...b,projectNames:selectedProjects("editProjects"),groupingMode:"manual",identity:r.identity,revision:r.revision,tags:state.editTags})});if(uploadContext){uploadContext.item.role=result.role;await refresh(true);openUploadTask(uploadContext.job);toast("草稿已更新")}else{await refresh(true);details(result.role);toast("素材已保存")}}catch(e){$("#formError").textContent=e.message;$("#saveRole").disabled=false}};
  $("#editAnalyze").onclick=async()=>{if(!commitPendingTag())return;const button=$("#editAnalyze");button.disabled=true;button.textContent="正在分析…";$("#saveRole").disabled=true;try{const fields=Object.fromEntries(new FormData($("#editForm")));const saved=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...fields,projectNames:selectedProjects("editProjects"),groupingMode:"manual",identity:r.identity,revision:r.revision,tags:state.editTags})});r=saved.role;const result=await analyzeAsset(r,$("#editAnalysisModel")?.value);await refresh(true);editRole(result.role);toast("模型分析完成")}catch(e){$("#formError").textContent=e.message;button.disabled=false;button.textContent="模型分析";$("#saveRole").disabled=false}};
 }
 function tagDialog(dimension){modal("添加子标签",'<form id="tagForm"><label>输入或选择子标签<input id="tagName" name="name" list="tagNames" maxlength="40" required></label><datalist id="tagNames">'+labelOptions(dimension).map(n=>'<option value="'+esc(n)+'">').join("")+'</datalist><p id="formError" class="error"></p><div class="dialog-actions"><button class="primary">保存</button></div></form>');$("#tagForm").onsubmit=async e=>{e.preventDefault();try{await post("/api/tags",{dimension,name:$("#tagName").value});await refresh(true);$("#modal").close();toast("子标签已保存")}catch(error){$("#formError").textContent=error.message}}}
@@ -248,7 +249,7 @@ function restoreUploadJobs(roles){
   const rows=roles.filter(r=>r.uploadBatch===batch),old=uploadJobs.get(batch);
   if(old?.active)continue;
   const items=rows.map(r=>({role:r,name:r.filename,file:null,status:r.analysisStatus==="done"?"分析完成":r.analysisStatus==="failed"?"分析失败":"等待分析",error:r.analysisError||""}));
-  if(old){old.items=items;if(!old.saved)old.status="等待保存"}else uploadJobs.set(batch,{id:batch,owner:state.user.id,createdAt:Date.parse(rows[0].createdAt),items,fields:{},tags:[],projects:[],auto:rows.some(r=>r.uploadAutoAnalyze||r.analysisStatus),choice:codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api",concurrency:3,status:"等待保存",active:false,stopRequested:false,cancelRequested:false});
+  if(old){for(const item of items){const known=old.items.find(i=>i.role?.identity===item.role.identity);if(known){known.role=item.role;if(item.status==="分析完成"){known.status=item.status;known.error=""}}else old.items.push(item)}if(!old.saved)old.status="等待保存"}else uploadJobs.set(batch,{id:batch,owner:state.user.id,createdAt:Date.parse(rows[0].createdAt),items,fields:{},tags:[],projects:[],auto:rows.some(r=>r.uploadAutoAnalyze||r.analysisStatus),choice:codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api",concurrency:3,status:"等待保存",active:false,stopRequested:false,cancelRequested:false});
  }
  if($("#modal").dataset.kind==="background-tasks")paintBackgroundTasks();
 }
@@ -258,45 +259,87 @@ function taskChanged(job){
 }
 function openUploadTask(job){
  if(job.owner!==state.user?.id)return;
+ if(job.formNode){$("#modalContent .dialog-head h2").textContent="上传素材";$("#modalContent .dialog-body").replaceChildren(job.formNode);$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal();paintUploadTask(job);return}
  modal("上传素材",'<div id="uploadTaskBody"></div>');$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;paintUploadTask(job);
 }
+function uploadRows(job){return job.items.map((i,n)=>'<div class="task-item"><div class="task-material">'+(i.role?.imageUrl||i.previewUrl?'<img class="task-thumbnail" src="'+esc(i.role?.imageUrl||i.previewUrl)+'" alt="">':'')+'<strong>'+esc(i.role?.name||i.file?.name||i.name)+'</strong><p class="'+(i.error?'error':'form-note')+'">'+esc(i.error||i.status)+'</p></div>'+'<div class="task-item-actions">'+(i.role||i.file?'<button type="button" data-task-detail="'+n+'">查看</button>':'')+(i.saved||i.cancelled?'<span class="form-note">'+(i.saved?'已保存':'已取消')+'</span>':'<button type="button" data-task-retry="'+n+'" '+(job.active||job.saving||i.cancelRequested||i.status==="分析完成"||i.role&&!canAnalyze()?'disabled':'')+'>重试</button><button type="button" data-task-analyze="'+n+'" '+(job.active||job.saving||i.cancelRequested||!canAnalyze()?'disabled':'')+'>分析</button><button type="button" data-task-edit="'+n+'" '+(job.active||job.saving||i.cancelRequested?'disabled':'')+'>编辑</button><button type="button" data-task-save="'+n+'" '+(job.saving||i.cancelRequested?'disabled':'')+'>保存</button><button type="button" data-task-cancel="'+n+'" '+(job.saving||i.cancelRequested?'disabled':'')+'>取消</button>')+'</div>'+'</div>').join("")}
+function paintInlineUpload(job){
+ const form=job.formNode,body=form.querySelector("#uploadTaskBody"),list=form.querySelector("#fileList");body.dataset.running=String(job.active);
+ const template=document.createElement("div");template.innerHTML=uploadRows(job);[...template.children].forEach((node,n)=>{let row=list.children[n];if(!row){row=document.createElement("div");row.className="task-item";list.append(row)}row.innerHTML=node.innerHTML});while(list.children.length>job.items.length)list.lastElementChild.remove();
+ const ready=job.items.filter(i=>i.role).length,done=job.items.filter(i=>i.status==="分析完成").length,failed=job.items.filter(i=>i.error).length;
+ $("#fileSummary").textContent="已选择 "+job.items.filter(i=>!i.cancelled).length+" 张图片 · "+size(job.items.reduce((n,i)=>n+(i.file?.size||i.role?.size||0),0));
+ $("#uploadProgress").hidden=!job.started;$("#uploadProgress").textContent=job.status+" · 已准备 "+ready+" / "+job.items.length+" 张 · 分析完成 "+done+" 张 · 失败 "+failed+" 张";$("#uploadError").textContent=job.error||"";
+ for(const el of form.querySelectorAll("#chooseFiles,#chooseFolder,#groupingMode,#namingMode,#autoAnalyze,#uploadProjects input,#uploadProjects button,[data-custom-name]"))el.disabled=job.active||job.saving;
+ $("#startUpload").disabled=job.active||job.saving||!job.items.some(i=>!i.saved&&!i.cancelled);$("#directSaveUpload").disabled=job.saving||!job.items.some(i=>!i.saved&&!i.cancelled);$("#directSaveUpload").textContent=job.saved?"已保存":"保存";
+ $("#stopAnalysis").hidden=!job.active||!job.auto;$("#stopAnalysis").disabled=!!job.stopRequested;$("#cancelUpload").disabled=job.saving||job.cancelRequested;$("#retryAnalysis").hidden=job.active||!job.items.some(i=>!i.saved&&!i.cancelled&&i.error);
+ wireUploadActions(job,list);$("#stopAnalysis").onclick=()=>{job.stopRequested=true;job.status="已停止排队，等待当前分析完成";taskChanged(job)};$("#retryAnalysis").onclick=()=>job.begin(false,null,true);$("#cancelUpload").onclick=()=>job.started?cancelUploadTask(job):$("#modal").close();
+ $("#refreshUploadTask").onclick=async()=>{try{await syncUploadRoles(job);job.error="";taskChanged(job);toast("素材状态已刷新")}catch(error){job.error=error.message;taskChanged(job)}};
+ if($("#uploadAnalysisModel")){$("#uploadAnalysisModel").disabled=job.active;$("#uploadAnalysisModel").onchange=e=>job.choice=e.target.value}$("#analysisConcurrency").disabled=job.active;$("#analysisConcurrency").onchange=e=>job.concurrency=Number(e.target.value);
+}
+function wireUploadActions(job,body){
+ body.querySelectorAll("[data-task-detail]").forEach(b=>b.onclick=()=>{const item=job.items[Number(b.dataset.taskDetail)];if(item.role)return details(item.role);const url=globalThis.URL.createObjectURL?.(item.file);if(!url)return;modal("素材预览",'<img class="pending-preview" src="'+esc(url)+'"><div class="dialog-actions"><button id="backToUpload">返回上传</button></div>');$("#backToUpload").onclick=()=>{URL.revokeObjectURL(url);openUploadTask(job)}});
+ body.querySelectorAll("[data-task-retry]").forEach(b=>b.onclick=()=>job.formNode?job.begin(false,job.items[Number(b.dataset.taskRetry)],true):runUploadTask(job,true,job.items[Number(b.dataset.taskRetry)]));
+ body.querySelectorAll("[data-task-analyze]").forEach(b=>b.onclick=()=>job.formNode?job.begin(false,job.items[Number(b.dataset.taskAnalyze)],true,true):runUploadTask(job,true,job.items[Number(b.dataset.taskAnalyze)],true));
+ body.querySelectorAll("[data-task-edit]").forEach(b=>b.onclick=async()=>{const item=job.items[Number(b.dataset.taskEdit)];b.disabled=true;try{if(item.role)await syncUploadRoles(job,item);if(job.active||item.cancelled||item.saved)return;editRole(item.role||{name:item.name,description:item.description||"",generationPrompt:item.generationPrompt||"",tags:item.tags||[],projectNames:item.projectNames||selectedProjects("uploadProjects")},{job,item})}catch(error){job.error=error.message;taskChanged(job)}});
+ body.querySelectorAll("[data-task-save]").forEach(b=>b.onclick=()=>{const item=job.items[Number(b.dataset.taskSave)];return item.role?saveUploadTask(job,item):job.begin(true,item)});
+ body.querySelectorAll("[data-task-cancel]").forEach(b=>b.onclick=()=>cancelUploadItem(job,job.items[Number(b.dataset.taskCancel)]));
+}
 function paintUploadTask(job){
- const body=$("#uploadTaskBody");if(!body)return;
+ if(job.formNode&&$("#uploadForm")===job.formNode)return paintInlineUpload(job);
+ const body=$("#uploadTaskBody");if(!body)return;body.dataset.running=String(job.active);
  const ready=job.items.filter(i=>i.role).length,failed=job.items.filter(i=>i.error).length,done=job.items.filter(i=>i.status==="分析完成").length;
- body.innerHTML='<p class="form-note">右上角 × 只收起窗口，任务继续后台运行。未保存的临时素材不会同步百度网盘；取消只清理本次批次。</p><p id="uploadProgress" class="progress" role="status">'+esc(job.status)+' · 已准备 '+ready+' / '+job.items.length+' 张 · 分析完成 '+done+' 张 · 失败 '+failed+' 张</p><div class="file-list task-items">'+job.items.map((i,n)=>'<div class="task-item"><div><strong>'+esc(i.role?.name||i.file?.name||i.name)+'</strong><p class="'+(i.error?'error':'form-note')+'">'+esc(i.error||i.status)+'</p></div>'+(i.role?'<button type="button" data-task-detail="'+n+'">查看</button>':'')+'</div>').join("")+'</div><p id="uploadError" class="error">'+esc(job.error||"")+'</p>'+
+ body.innerHTML='<p class="form-note">右上角 × 只收起窗口，任务继续后台运行。未保存的临时素材不会同步百度网盘；取消只清理本次批次。</p><p id="uploadProgress" class="progress" role="status">'+esc(job.status)+' · 已准备 '+ready+' / '+job.items.length+' 张 · 分析完成 '+done+' 张 · 失败 '+failed+' 张</p><div class="file-list task-items">'+uploadRows(job)+'</div><p id="uploadError" class="error">'+esc(job.error||"")+'</p>'+
  (job.auto&&!job.saved?analysisModelSelect("uploadAnalysisModel")+'<label>分析并发<select id="analysisConcurrency">'+[1,2,3,4,5].map(n=>'<option value="'+n+'" '+(n===job.concurrency?'selected':'')+'>同时分析 '+n+' 张</option>').join("")+'</select></label>':'')+
- '<div class="dialog-actions">'+(job.saved?'': '<button type="button" id="stopAnalysis" '+(!job.active||!job.auto?'hidden':'')+(job.stopRequested?' disabled':'')+'>停止分析</button><button type="button" id="retryAnalysis" '+(job.active||!failed&&!job.items.some(i=>i.status==="等待分析"||i.status==="未分析")?'hidden':'')+'>重试</button><button type="button" id="cancelUpload" '+(job.cancelRequested||job.saving?'disabled':'')+'>取消</button>')+'<button type="button" id="startUpload" class="primary" '+(job.active||!ready&&!job.saved?'disabled':'')+'>'+ (job.saved?'已保存':'保存')+'</button></div>';
+ '<div class="dialog-actions"><button type="button" id="refreshUploadTask" '+(job.saving?'disabled':'')+'>刷新</button>'+ (job.saved?'': '<button type="button" id="stopAnalysis" '+(!job.active||!job.auto?'hidden':'')+(job.stopRequested?' disabled':'')+'>停止分析</button><button type="button" id="retryAnalysis" '+(job.active||!job.items.some(i=>!i.saved&&!i.cancelled&&(i.error||i.status==="等待分析"||i.status==="未分析"))?'hidden':'')+'>重试</button><button type="button" id="cancelUpload" '+(job.cancelRequested||job.saving?'disabled':'')+'>取消</button>')+'<button type="button" id="startUpload" class="primary" '+(job.saving||!ready&&!job.saved?'disabled':'')+'>'+ (job.saved?'已保存':'保存')+'</button></div>';
  if($("#uploadAnalysisModel")){$("#uploadAnalysisModel").value=job.choice;$("#uploadAnalysisModel").disabled=job.active;$("#uploadAnalysisModel").onchange=e=>job.choice=e.target.value}
  if($("#analysisConcurrency")){$("#analysisConcurrency").disabled=job.active;$("#analysisConcurrency").onchange=e=>job.concurrency=Number(e.target.value)}
- body.querySelectorAll("[data-task-detail]").forEach(b=>b.onclick=()=>details(job.items[Number(b.dataset.taskDetail)].role));
+ wireUploadActions(job,body);
+ $("#refreshUploadTask").onclick=async()=>{const button=$("#refreshUploadTask");button.disabled=true;try{await syncUploadRoles(job);job.error="";taskChanged(job);toast("素材状态已刷新")}catch(error){job.error=error.message;taskChanged(job)}};
  if($("#stopAnalysis"))$("#stopAnalysis").onclick=()=>{job.stopRequested=true;job.status="已停止排队，等待当前分析完成";taskChanged(job)};
  if($("#retryAnalysis"))$("#retryAnalysis").onclick=()=>runUploadTask(job,true);
  if($("#cancelUpload"))$("#cancelUpload").onclick=()=>cancelUploadTask(job);
  $("#startUpload").onclick=()=>job.saved?$("#modal").close():saveUploadTask(job);
 }
-async function runUploadTask(job,retry=false){
+async function syncUploadRoles(job,onlyItem=null){
+ const library=await api("/api/library");for(const item of onlyItem?[onlyItem]:job.items){if(!item.role||item.cancelled)continue;const current=[...(library.drafts||[]),...(library.roles||[])].find(r=>r.identity===item.role.identity);if(current){item.role=current;if(current.analysisStatus==="done"){item.status="分析完成";item.error=""}else if(current.analysisStatus==="failed"){item.status="分析失败";item.error=current.analysisError||item.error}}}
+}
+async function runUploadTask(job,retry=false,onlyItem=null,forceAnalysis=false){
  if(job.active||job.saved||job.owner!==state.user?.id)return;
+ if(onlyItem&&(onlyItem.saved||onlyItem.cancelled||onlyItem.cancelRequested))return;
+ if(forceAnalysis&&onlyItem)onlyItem.status="等待分析";
+ if(onlyItem?.role)job.auto=true;
+ const scope=(onlyItem?[onlyItem]:job.items).filter(i=>!i.saved&&!i.cancelled&&!i.cancelRequested);
  job.active=true;job.stopRequested=false;job.error="";job.status=retry?"正在重试":"正在准备";taskChanged(job);
  const allowed=()=>!job.cancelRequested&&job.owner===state.user?.id;
  try{
-  if(retry){const library=await api("/api/library");for(const item of job.items){const current=(library.drafts||[]).find(r=>r.identity===item.role?.identity);if(current)item.role=current}}
-  let next=0;const uploads=job.items.filter(i=>!i.role&&i.file);
-  const uploadOne=async()=>{while(next<uploads.length&&allowed()){const item=uploads[next++];item.status="正在准备";item.error="";taskChanged(job);try{
+  if(retry){await syncUploadRoles(job,onlyItem);if(forceAnalysis&&onlyItem)onlyItem.status="等待分析"}
+  let next=0;const uploads=scope.filter(i=>!i.role&&i.file);
+  const uploadOne=async()=>{while(next<uploads.length&&allowed()){const item=uploads[next++];if(item.cancelRequested||item.cancelled||item.saved)continue;item.status="正在准备";item.error="";taskChanged(job);try{
    if(item.file.size>20*1048576)throw new Error("超过20MB");
-   const f=new FormData();f.append("file",item.file);f.append("preview",await preview(item.file));f.append("uploadBatch",job.id);f.append("uploadAutoAnalyze",job.auto?"1":"0");f.append("projectNames",JSON.stringify(job.projects));f.append("projectName",job.projects[0]||"未分组");f.append("groupingMode",!job.auto&&job.fields.groupingMode==="ai"?"manual":job.fields.groupingMode);f.append("namingMode",!job.auto&&job.fields.namingMode==="ai"?"custom":job.fields.namingMode);f.append("name",item.name);f.append("generationPrompt",job.fields.generationPrompt||"");f.append("tags",JSON.stringify(job.tags));
-   item.role=(await api("/api/assets",{method:"POST",body:f})).role;item.status=job.auto?"等待分析":"准备完成";
+   const f=new FormData();f.append("file",item.file);f.append("preview",await preview(item.file));f.append("uploadBatch",job.id);f.append("uploadAutoAnalyze",job.auto?"1":"0");f.append("projectNames",JSON.stringify(item.projectNames||job.projects));f.append("projectName",(item.projectNames||job.projects)[0]||"未分组");f.append("groupingMode",!job.auto&&job.fields.groupingMode==="ai"?"manual":job.fields.groupingMode);f.append("namingMode",item.edited?"custom":!job.auto&&job.fields.namingMode==="ai"?"custom":job.fields.namingMode);f.append("name",item.name);f.append("generationPrompt",item.generationPrompt||job.fields.generationPrompt||"");f.append("description",item.description||"");f.append("tags",JSON.stringify(item.tags||job.tags));
+   item.role=(await api("/api/assets",{method:"POST",body:f})).role;if(item.description&&item.role.description!==item.description)item.role=(await api(assetPath(item.role),{method:"PATCH",body:JSON.stringify({...item.role,description:item.description,identity:item.role.identity,revision:item.role.revision})})).role;item.status=job.auto?"等待分析":"准备完成";
   }catch(error){item.status="准备失败";item.error=error.message}finally{taskChanged(job)}}};
   await Promise.all(Array.from({length:Math.min(3,uploads.length)},uploadOne));
   if(job.auto&&allowed()&&!job.stopRequested){
-   job.status="模型分析";let cursor=0;const jobs=job.items.filter(i=>i.role&&i.status!=="分析完成"),limit=job.choice==="api"?job.concurrency:Math.min(job.concurrency,codexLocal.maxConcurrent||1);
-   const analyzeOne=async()=>{while(cursor<jobs.length&&allowed()&&!job.stopRequested){const item=jobs[cursor++];item.status="正在分析";item.error="";taskChanged(job);try{item.role=(await analyzeAsset(item.role,job.choice)).role;item.status="分析完成"}catch(error){item.status="分析失败";item.error=error.message}finally{taskChanged(job)}}};
+   job.status="模型分析";let cursor=0;const jobs=scope.filter(i=>i.role&&i.status!=="分析完成"&&!i.cancelRequested),limit=job.choice==="api"?job.concurrency:Math.min(job.concurrency,codexLocal.maxConcurrent||1);
+   const analyzeOne=async()=>{while(cursor<jobs.length&&allowed()&&!job.stopRequested){const item=jobs[cursor++];if(item.cancelRequested)continue;item.status="正在分析";item.error="";taskChanged(job);try{item.role=(await analyzeAsset(item.role,job.choice)).role;item.status="分析完成"}catch(error){item.status="分析失败";item.error=error.message;try{await syncUploadRoles(job,item)}catch{}}finally{taskChanged(job)}}};
    await Promise.all(Array.from({length:Math.min(limit,jobs.length)},analyzeOne));
   }
   for(const item of job.items)if(item.role&&item.status==="等待分析"&&job.stopRequested)item.status="未分析";
   job.status=job.owner!==state.user?.id?"等待原账号继续处理":job.stopRequested?"分析已停止，等待保存":"等待保存";
  }catch(error){job.error=error.message;job.status="处理失败"}finally{
-  job.active=false;if(job.cancelRequested)await discardUploadTask(job);else taskChanged(job);
+  job.active=false;if(job.cancelRequested)await discardUploadTask(job);else{for(const item of job.items.filter(i=>i.cancelRequested))await discardUploadItem(job,item);taskChanged(job);if(job.directSave)await saveUploadTask(job,job.directItem||null)}
  }
+}
+async function cancelUploadItem(job,item){
+ if(job.saving||item.saved||item.cancelled||job.owner!==state.user?.id)return;
+ const busy=item.status==="正在分析"||item.status==="正在准备";item.cancelRequested=true;item.error="";item.status="等待取消";taskChanged(job);
+ if(!busy)await discardUploadItem(job,item);
+}
+async function discardUploadItem(job,item){
+ try{if(item.role){const result=await post("/api/upload-batches",{batch:job.id,action:"cancel",identities:[item.role.identity]});if(result.failed)throw new Error("临时数据清理失败，请重试取消")}
+ item.cancelled=true;item.cancelRequested=false;item.file=null;item.role=null;item.error="";item.status="已取消";await refresh(true);taskChanged(job);
+ }catch(error){item.cancelRequested=false;item.error=error.message;item.status="取消失败";taskChanged(job)}
 }
 async function cancelUploadTask(job){
  if(job.saving||job.saved||job.owner!==state.user?.id)return;
@@ -309,17 +352,21 @@ async function discardUploadTask(job){
   job.items=[];uploadJobs.delete(job.id);if($("#modal").dataset.kind==="upload-task"&&$("#modal").dataset.taskId===job.id)$("#modal").close();else if($("#modal").dataset.kind==="background-tasks")paintBackgroundTasks();await refresh(true);toast("本次上传已取消，临时数据已清理，不进入回收站");
  }catch(error){job.cancelRequested=false;job.error=error.message;job.status="取消未完成";taskChanged(job)}
 }
-async function saveUploadTask(job){
- if(job.active||job.owner!==state.user?.id)return;
+async function saveUploadTask(job,onlyItem=null){
+ if(job.owner!==state.user?.id)return;
+ if(job.active){if($("#modal").dataset.taskId===job.id)$("#modal").close();toast("任务继续在后台运行，分析完成后可再保存");return}
+ const selected=(onlyItem?[onlyItem]:job.items).filter(i=>i.role&&!i.saved&&!i.cancelled&&!i.cancelRequested);if(!selected.length)return;
  job.active=true;job.saving=true;job.status="正在保存";job.error="";taskChanged(job);
  try{
-  const result=await post("/api/upload-batches",{batch:job.id,action:"save"});job.saved=true;job.status=result.backupQueued?"已保存，百度网盘备份在后台运行":"已保存";job.error=result.backupError||"";for(const item of job.items)item.file=null;await refresh(true);globalThis.resumeBaiduBackup?.();toast(result.backupQueued?"已保存，正在后台备份百度网盘":"素材已保存");
- }catch(error){job.error=error.message;job.status="保存失败"}finally{job.active=false;job.saving=false;taskChanged(job)}
+  const result=await post("/api/upload-batches",{batch:job.id,action:"save",identities:selected.map(i=>i.role.identity)});
+  for(const item of selected){const saved=(result.roles||[]).find(r=>r.identity===item.role.identity);if(saved)item.role=saved;item.saved=true;item.file=null}
+  job.saved=job.items.every(i=>i.saved||i.cancelled);job.status=job.saved?(result.backupQueued?"已保存，网盘备份在后台运行":"已保存"):"部分已保存，其他素材等待处理";job.error=result.backupError||"";await refresh(true);globalThis.resumeBaiduBackup?.();toast(result.backupQueued?"已保存，正在后台备份网盘":"素材已保存");
+ }catch(error){job.error=error.message;job.status="保存失败"}finally{job.active=false;job.saving=false;job.directSave=false;taskChanged(job)}
 }
 function paintBackgroundTasks(){
  const body=$("#backgroundTasksBody");if(!body)return;
  const jobs=ownedUploadJobs().sort((a,b)=>Number(b.active)-Number(a.active)||b.createdAt-a.createdAt);
- body.innerHTML='<p class="form-note">收起任务窗口不影响处理。分析完成后仍需点击保存；取消只删除该批次临时数据。</p>'+jobs.map(j=>{const completed=j.items.filter(i=>i.status==="分析完成").length,failed=j.items.filter(i=>i.error).length,pending=j.auto?j.items.length-completed-failed:0;return '<div class="task-item"><div><strong>'+esc(new Date(j.createdAt).toLocaleString("zh-CN"))+' · '+j.items.length+' 张素材</strong><p class="form-note">'+(j.auto?'模型分析 · 等待 '+pending+' · 完成 '+completed+' · 失败 '+failed:esc(j.status))+'</p></div><button type="button" data-open-upload="'+esc(j.id)+'">查看任务</button></div>'}).join("")+(jobs.length?'':'<p class="muted">暂无上传任务</p>')+(backgroundBaidu?.tasks||[]).map(t=>'<div class="task-item"><div><strong>网盘备份</strong><p class="form-note">等待 '+(t.counts.pending||0)+' · 完成 '+(t.counts.done||0)+' · 失败 '+(t.counts.failed||0)+'</p>'+(t.createdAt?'<p class="form-note">'+esc(new Date(t.createdAt).toLocaleString("zh-CN"))+'</p>':'')+'</div><button type="button" data-backup-task="'+esc(t.id)+'">查看备份</button></div>').join('')+'<div class="dialog-actions"><button type="button" id="refreshTasks">刷新任务</button></div>';
+ body.innerHTML='<p class="form-note">收起任务窗口不影响处理。分析完成后仍需点击保存；取消只删除该批次临时数据。</p>'+jobs.map(j=>{const completed=j.items.filter(i=>i.status==="分析完成").length,failed=j.items.filter(i=>i.error).length,pending=j.auto?j.items.filter(i=>!i.cancelled&&i.status!=="分析完成"&&!i.error).length:0;return '<div class="task-item"><div><strong>'+esc(new Date(j.createdAt).toLocaleString("zh-CN"))+' · '+j.items.length+' 张素材</strong><p class="form-note">'+(j.auto?'模型分析 · 等待 '+pending+' · 完成 '+completed+' · 失败 '+failed:esc(j.status))+'</p></div><button type="button" data-open-upload="'+esc(j.id)+'">查看任务</button></div>'}).join("")+(jobs.length?'':'<p class="muted">暂无上传任务</p>')+(backgroundBaidu?.tasks||[]).map(t=>'<div class="task-item"><div><p class="form-note">网盘备份 · 等待 '+(t.counts.pending||0)+' · 完成 '+(t.counts.done||0)+' · 失败 '+(t.counts.failed||0)+'</p>'+(t.createdAt?'<p class="form-note">'+esc(new Date(t.createdAt).toLocaleString("zh-CN"))+'</p>':'')+'</div><button type="button" data-backup-task="'+esc(t.id)+'">查看备份</button></div>').join('')+'<div class="dialog-actions"><button type="button" id="refreshTasks">刷新任务</button></div>';
  body.querySelectorAll("[data-open-upload]").forEach(b=>b.onclick=()=>openUploadTask(uploadJobs.get(b.dataset.openUpload)));$("#refreshTasks").onclick=showBackgroundTasks;body.querySelectorAll("[data-backup-task]").forEach(b=>b.onclick=()=>baiduDialog(b.dataset.backupTask));
 }
 async function showBackgroundTasks(){
@@ -332,20 +379,21 @@ setInterval(async()=>{if(tasksPolling||!state.user||document.hidden||$("#modal")
 function uploadDialog(){
  state.editTags=[];
  state.files=[];
- modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>可一次选择多张图片，也可继续添加图片或选择整个文件夹。每张图片独立准备和分析，默认同时分析3张。点击保存后才会进入素材库并同步百度网盘。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><div id="fileList" class="file-list"></div></div><div class="row"><label>分组方式<select name="groupingMode" id="groupingMode"><option value="ai" selected>模型分组</option><option value="manual">手动分组</option></select></label><div id="uploadProjectField" hidden><label>灵感集</label>'+projectPicker("uploadProjects")+'</div></div><div class="row"><label>命名方式<select name="namingMode" id="namingMode"><option value="original">原文件名</option><option value="custom">手动命名</option><option value="ai" selected>模型命名</option></select></label><div id="customNames" class="file-list upload-name-fields" hidden><label>文件名<input disabled placeholder="选择图片后填写"></label></div></div>'+projectList()+'<label>提示词<textarea name="generationPrompt" maxlength="12000"></textarea></label>'+'<h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">选择父标签后输入子标签，按 Enter 或点击添加。本次上传共用，可在详情逐张修改；分析会保留手动标签。</p>'+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" checked>保存前分析并添加子标签</label><p class="form-note">取消勾选后只准备素材，不调用模型；按填写的文件名、灵感集、提示词和标签保存。自动命名和自动分组需要连接本机 Codex / 本机 Gemini 或配置视觉模型。分析失败时临时原图保留，可重试或按默认信息保存；取消会清理本批次全部临时数据。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>开始处理</button></div></form>');
+ modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>可一次选择多张图片，也可继续添加图片或选择整个文件夹。每张图片独立准备和分析，默认同时分析3张。点击保存后才会进入素材库并同步百度网盘。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><p id="fileSummary" class="form-note"></p><div id="uploadTaskBody" data-running="false"><div id="fileList" class="file-list task-items"></div></div></div><div class="row"><label>分组方式<select name="groupingMode" id="groupingMode"><option value="ai" selected>模型分组</option><option value="manual">手动分组</option></select></label><div id="uploadProjectField" hidden><label>灵感集</label>'+projectPicker("uploadProjects")+'</div></div><div class="row"><label>命名方式<select name="namingMode" id="namingMode"><option value="original">原文件名</option><option value="custom">手动命名</option><option value="ai" selected>模型命名</option></select></label><div id="customNames" class="file-list upload-name-fields" hidden><label>文件名<input disabled placeholder="选择图片后填写"></label></div></div>'+projectList()+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" checked>保存前分析并添加子标签</label><p class="form-note">取消勾选后只准备素材，不调用模型。提示词、描述和标签在每张素材的编辑中填写。自动命名和自动分组需要连接本机 Codex / 本机 Gemini 或配置视觉模型。点击保存可直接按填写信息入库，不调用模型。开始处理会按勾选项执行模型分析。分析失败时临时原图保留，可逐张重试或保存默认信息；取消只清理未保存素材。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>开始处理</button></div></form>');
 if(codexLocal.connected&&codexLocal.maxConcurrent<5){const hint=document.createElement("p");hint.className="form-note";hint.innerHTML='当前连接包最高支持同时分析'+codexLocal.maxConcurrent+'张。<a href="/share/local-connector.zip">下载新版连接包</a>，关闭旧程序并启动新版、重新配对后可选择同时分析1–5张。';$("#uploadProgress").before(hint)}
 const concurrencyField=document.createElement("label");concurrencyField.innerHTML='分析并发<select id="analysisConcurrency" name="analysisConcurrency">'+[1,2,3,4,5].map(n=>'<option value="'+n+'">同时分析 '+n+' 张</option>').join('')+'</select><span class="form-note">默认3张；可选1–5张。失败立即显示原因，不会自动重试；限流时可降低并发后点击重试。旧连接包按实际支持数量执行，请更新连接包以使用5张。</span>';$("#uploadError").before(concurrencyField);$("#analysisConcurrency").value=localStorage.getItem("atlas-analysis-concurrency")||"3";
  const stop=document.createElement("button");stop.id="stopAnalysis";stop.type="button";stop.className="danger";stop.textContent="停止分析";stop.hidden=true;$("#startUpload").before(stop);
+ const directSave=document.createElement("button");directSave.type="button";directSave.id="directSaveUpload";directSave.textContent="保存";directSave.disabled=true;$("#startUpload").after(directSave);
  const cancel=document.createElement("button");cancel.type="button";cancel.id="cancelUpload";cancel.textContent="取消";$("#startUpload").before(cancel);cancel.onclick=()=>{state.files=[];$("#modal").close()};
- wireTagOptions();const commitUploadTag=wireManualTags("#uploadError");
+
+ const job={id:crypto.randomUUID(),owner:state.user.id,createdAt:Date.now(),items:state.files,fields:{},tags:[],projects:[],auto:false,choice:$("#uploadAnalysisModel")?.value,concurrency:Number($("#analysisConcurrency").value)||3,status:"等待处理",active:false,saving:false,started:false,formNode:$("#uploadForm")};$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;
+ const refreshButton=document.createElement("button");refreshButton.id="refreshUploadTask";refreshButton.type="button";refreshButton.textContent="刷新";$("#startUpload").before(refreshButton);const retryButton=document.createElement("button");retryButton.id="retryAnalysis";retryButton.type="button";retryButton.textContent="重试";retryButton.hidden=true;$("#startUpload").before(retryButton);
  const choose=(files)=>{
-  for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const entry=state.files[Number(input.dataset.customName)];if(entry)entry.name=input.value}
+  for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const entry=state.files[Number(input.dataset.customName)];if(entry&&!entry.edited)entry.name=input.value}
   const supported=[...files].filter(f=>/\.(png|jpe?g|webp)$/i.test(f.name));
-  const fileKey=f=>[f.webkitRelativePath||f.name,f.size,f.lastModified].join("\u0000"),seen=new Set(state.files.map(e=>fileKey(e.file)));let duplicates=0;
-  for(const file of supported){const key=fileKey(file);if(seen.has(key)){duplicates++;continue}seen.add(key);state.files.push({file,name:file.name.replace(/\.[^.]+$/,"")})}
-  $("#fileList").textContent="已选择 "+state.files.length+" 张图片 · "+size(state.files.reduce((n,e)=>n+e.file.size,0))+(files.length>supported.length?" · 已跳过 "+(files.length-supported.length)+" 个其他文件":"")+(duplicates?" · 已跳过 "+duplicates+" 个重复文件":"");
-  $("#startUpload").disabled=!state.files.length;
-  $("#customNames").innerHTML=state.files.map((entry,i)=>'<label class="file-row">'+(state.files.length===1?'文件名':esc(entry.file.name))+'<input data-custom-name="'+i+'" value="'+esc(entry.name)+'" maxlength="80"></label>').join("");
+  const fileKey=f=>[f.webkitRelativePath||f.name,f.size,f.lastModified].join("\u0000"),seen=new Set(state.files.filter(e=>e.file).map(e=>fileKey(e.file)));let duplicates=0;
+  for(const file of supported){const key=fileKey(file);if(seen.has(key)){duplicates++;continue}seen.add(key);state.files.push({file,previewUrl:globalThis.URL.createObjectURL?.(file),name:file.name.replace(/\.[^.]+$/,""),status:"等待处理",role:null,error:""})}
+  $("#customNames").innerHTML=state.files.map((entry,i)=>'<label class="file-row">'+(state.files.length===1?'文件名':esc(entry.file.name))+'<input data-custom-name="'+i+'" value="'+esc(entry.name)+'" maxlength="80"></label>').join("");paintUploadTask(job);
  };
  $("#chooseFiles").onclick=()=>$("#fileInput").click();$("#chooseFolder").onclick=()=>$("#folderInput").click();
  $("#fileInput").onchange=e=>{choose(e.target.files);e.target.value=""};$("#folderInput").onchange=e=>{choose(e.target.files);e.target.value=""};
@@ -354,15 +402,17 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
  $("#namingMode").onchange=e=>{$("#customNames").hidden=e.target.value!=="custom"&&$("#autoAnalyze").checked;$("#autoAnalyze").disabled=false};
  $("#namingMode").dispatchEvent(new Event("change"));
  $("#autoAnalyze").onchange=()=>{$("#uploadProjectField").hidden=$("#groupingMode").value!=="manual"&&$("#autoAnalyze").checked;$("#customNames").hidden=$("#namingMode").value!=="custom"&&$("#autoAnalyze").checked};
- $("#uploadForm").onsubmit=async e=>{
-  e.preventDefault();if(!commitUploadTag())return;
-  const fields=Object.fromEntries(new FormData(e.currentTarget)),auto=$("#autoAnalyze").checked,choice=$("#uploadAnalysisModel")?.value;
+ const beginUpload=(direct=false,onlyItem=null,retry=false,force=false)=>{
+  if(job.active){if(direct)$("#modal").close();return}
+  const fields=Object.fromEntries(new FormData(job.formNode)),auto=force||!direct&&$("#autoAnalyze").checked,choice=$("#uploadAnalysisModel")?.value;
   if(auto&&!canAnalyze()){$("#uploadError").textContent="请先连接本机模型或配置 API 模型，或取消自动分析。";return}
-  const items=state.files.map((entry,i)=>({file:entry.file,name:$("#customNames").querySelector('[data-custom-name="'+i+'"]')?.value||entry.name,status:"等待处理",role:null,error:""}));
-  if(!items.length)return;if(fields.namingMode==="custom"&&items.some(i=>!i.name.trim())){$("#uploadError").textContent="请为每个素材输入名称";return}
-  const job={id:crypto.randomUUID(),owner:state.user.id,createdAt:Date.now(),items,fields,tags:state.editTags.map(t=>({...t})),projects:selectedProjects("uploadProjects"),auto,choice,concurrency:Number($("#analysisConcurrency").value)||3,status:"正在准备",active:false,cancelRequested:false,stopRequested:false};
-  uploadJobs.set(job.id,job);state.files=[];localStorage.setItem("atlas-analysis-concurrency",String(job.concurrency));openUploadTask(job);runUploadTask(job);
+  for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const item=job.items[Number(input.dataset.customName)];if(item&&!item.edited)item.name=input.value}
+  const remaining=job.items.filter(i=>!i.saved&&!i.cancelled);if(!remaining.length)return;
+  if(direct&&(onlyItem?!!onlyItem.role:remaining.every(i=>i.role))){saveUploadTask(job,onlyItem);return}
+  if(fields.namingMode==="custom"&&remaining.some(i=>!i.name.trim())){$("#uploadError").textContent="请为每个素材输入名称";return}
+  Object.assign(job,{fields,projects:selectedProjects("uploadProjects"),auto,choice,concurrency:Number($("#analysisConcurrency").value)||3,started:true,directSave:direct,directItem:onlyItem,saved:false});uploadJobs.set(job.id,job);localStorage.setItem("atlas-analysis-concurrency",String(job.concurrency));runUploadTask(job,retry,onlyItem,force);
  };
+ job.begin=beginUpload;$("#uploadForm").onsubmit=e=>{e.preventDefault();beginUpload(false)};$("#directSaveUpload").onclick=()=>beginUpload(true);paintUploadTask(job);
 }
  $("#uploadButton").onclick=uploadDialog;
 const presets={

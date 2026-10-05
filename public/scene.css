@@ -69,6 +69,9 @@ dialog::backdrop{background:transparent!important;backdrop-filter:none!important
  #modal[data-kind="asset-detail"] .detail-grid{grid-template-columns:1fr;grid-template-rows:minmax(150px,38%) minmax(0,1fr);gap:16px}
 }
 .task-items{max-height:45vh;overflow-y:auto;overscroll-behavior:contain}
+.task-thumbnail{float:left;width:56px;height:72px;object-fit:contain;margin:0 14px 8px 0;border-radius:6px}.task-material{flex:1;min-width:0}.pending-preview{display:block;max-width:100%;max-height:70vh;object-fit:contain;margin:auto}
 .task-item{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid #cbdcf544}
 .task-item>div{min-width:0}.task-item strong,.task-item p{overflow-wrap:anywhere}.task-item p{margin:8px 0 0}.task-item button{flex-shrink:0}
 #backgroundTasksBody>.form-note:first-child,#uploadTaskBody>.form-note:first-child{margin-top:0;padding-top:4px;line-height:1.8;white-space:normal;overflow-wrap:anywhere}
+
+.task-item-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;max-width:55%}.task-item-actions .form-note{margin:0}@media(max-width:700px){.task-item{align-items:flex-start;flex-direction:column}.task-item-actions{justify-content:flex-start;max-width:100%}}
