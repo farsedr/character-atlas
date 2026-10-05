@@ -1,6 +1,6 @@
 .character-scene{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:-1;background:#0b1120}
-.scene-image{position:absolute;inset:-3%;background-size:cover;background-position:center;opacity:0;transition:opacity 6s cubic-bezier(.4,0,.2,1);animation:scene-drift 32s ease-in-out infinite alternate;will-change:transform,opacity}
-.scene-image.is-active{opacity:.82}
+.scene-image{position:absolute;inset:-3%;background-size:cover;background-position:center;opacity:0;transition:opacity 8s cubic-bezier(.4,0,.2,1);animation:scene-drift 40s ease-in-out infinite alternate;will-change:transform,opacity}
+.scene-image:first-child,.scene-image.is-active{opacity:1}
 .scene-glow{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,16,29,.08),rgba(9,16,29,.22)),linear-gradient(0deg,rgba(11,17,32,.55) 0%,transparent 55%)}
 .scene-sparkles{position:absolute;inset:-10%;background:radial-gradient(circle at 12% 25%,#c9e5ff99 0 1px,transparent 3px),radial-gradient(circle at 76% 35%,#ded0ff88 0 2px,transparent 4px),radial-gradient(circle at 38% 70%,#b6c7ff88 0 1px,transparent 3px);background-size:370px 410px;animation:scene-drift 17s ease-in-out infinite alternate}
 body{background:#0b1120;color:#e7edf7;isolation:isolate}
@@ -37,3 +37,15 @@ dialog{background:rgba(16,27,44,.78)!important;backdrop-filter:blur(9px)}
 .auth-screen #authSubmit{color:#f3edff!important;text-shadow:0 2px 6px #000,0 0 14px #c5aeff55}
 .auth-screen label,.auth-screen h2,.auth-screen p,.auth-screen input,.auth-screen .auth-links button{color:#edf3ff!important;text-shadow:0 1px 4px #000,0 2px 8px #0007}
 .auth-screen input:focus,.auth-screen button:focus-visible{outline:1px solid #d8c8ff;outline-offset:3px}
+#app,#app *,#modal,#modal *,#filterPopover,#filterPopover *,#authScreen,#authScreen *{background-color:transparent!important;background-image:none!important;backdrop-filter:none!important;box-shadow:none!important}
+#app,#app .sidebar,#app .card,#app .filters,#app .project-card,#app button,#app input,#app select,#app textarea,#modal,#modal button,#modal input,#modal select,#modal textarea,#filterPopover{border-color:#cbdcf566!important}
+#app .sidebar{border-right:1px solid #cbdcf566}
+#app .card .cover{background:transparent!important}
+#app .primary,#modal .primary{color:#f0e9ff!important}
+#app,#modal,#filterPopover{color:#edf3ff;text-shadow:0 1px 4px #000,0 2px 8px #0007}
+#app .muted,#app .card-description,#app .card-meta,#app .chip{color:#dce6f5!important}
+#authScreen input,#authScreen button,#authScreen .entrance-symbol,#authScreen .entrance-edition{border-color:#cbdcf566!important}
+#authScreen .auth-card{border-left:1px solid #cbdcf566}
+#authScreen .auth-links{border-top-color:#cbdcf566!important}
+#authScreen #rememberPassword[aria-pressed="true"]{border-color:#dec6ff99!important;color:#e4caff!important}
+dialog::backdrop{background:transparent!important;backdrop-filter:none!important}
