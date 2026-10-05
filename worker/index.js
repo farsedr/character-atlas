@@ -160,7 +160,21 @@ if(typeof output!=="string"||output.length>80000)throw new HttpError(502,"模型
 try{return JSON.parse(output.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,"").replace(/\s*\x60\x60\x60$/,""))}catch{throw new HttpError(502,"模型未返回有效 JSON 标签，请选择支持图片与指令遵循的模型")}
 }
 
+function normalizeAnalysisFormat(parsed){
+ if(!parsed||typeof parsed!=="object"||!parsed.dimensions||typeof parsed.dimensions!=="object")return parsed;
+ const score=v=>{if(typeof v!=="string")return v;const s=v.trim();return /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(s)?Number(s):v};
+ const list=(v,optional=false)=>v==null&&optional?[]:typeof v==="string"?(v.trim()?[v.trim()]:[]):v;
+ const dimensions=Object.fromEntries(Object.entries(parsed.dimensions).map(([id,value])=>{
+  if(!value||typeof value!=="object"||Array.isArray(value))return [id,value];
+  const d={...value,secondary:list(value.secondary,true),evidence:list(value.evidence),confidence:score(value.confidence)};
+  if(Array.isArray(d.primary)&&d.primary.length===1&&id!=="vibe")d.primary=d.primary[0];
+  if(typeof d.uncertain==="string"&&/^(true|false)$/i.test(d.uncertain.trim()))d.uncertain=d.uncertain.trim().toLowerCase()==="true";
+  return [id,d];
+ }));
+ return {...parsed,dimensions,analysis_quality:parsed.analysis_quality?{...parsed.analysis_quality,confidence_overall:score(parsed.analysis_quality.confidence_overall)}:parsed.analysis_quality};
+}
 function validatedAnalysis(parsed){
+ parsed=normalizeAnalysisFormat(parsed);
  const fail=(reason="字段类型或数量不符合规范")=>{throw new HttpError(502,"模型返回格式不完整："+reason+"。点击重试；若持续失败，请在模型设置中切换视觉模型。")};
  if(!parsed||typeof parsed.summary!=="string"||!parsed.summary.trim())fail("缺少 summary 图片描述");
  if(!parsed.dimensions||typeof parsed.dimensions!=="object")fail("缺少 dimensions 24维分析");

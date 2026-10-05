@@ -216,7 +216,7 @@ function wireManualTags(errorSelector){
 function editRole(r,uploadContext=null){
  state.editTags=r.tags.map(t=>({...t}));
  modal("编辑素材",'<form id="editForm"><div class="row"><label>素材名<input name="name" value="'+esc(r.name)+'" required maxlength="180"></label><div><label>灵感集</label>'+projectPicker("editProjects",roleProjects(r))+'</div></div>'+projectList()+'<label>描述<textarea name="description" maxlength="1200">'+esc(r.description)+'</textarea></label><label>提示词<textarea name="generationPrompt" maxlength="12000">'+esc(r.generationPrompt)+'</textarea></label><h3>标签</h3><div id="editTags" class="editor-tags"></div>'+tagAdder()+'<p class="form-note">输入或选择子标签，按 Enter 或点击添加。直接保存也会收录输入的新标签。点击已有标签可移除。</p><p id="formError" class="error"></p><div class="dialog-actions">'+analysisModelSelect("editAnalysisModel")+'<button type="button" id="editAnalyze" '+(!canAnalyze()?"disabled":"")+'>模型分析</button><button class="primary" id="saveRole">保存</button></div></form>');wireTagOptions();
- if(uploadContext){$("#editAnalyze").hidden=true;const modelField=$("#editAnalysisModel")?.closest("label");if(modelField)modelField.hidden=true;$("#saveRole").textContent="应用编辑";const note=document.createElement("p");note.className="form-note";note.textContent="编辑只更新这张素材的草稿，返回任务后点击保存才进入素材库。";$("#editForm").prepend(note);const back=document.createElement("button");back.type="button";back.textContent="返回任务";back.onclick=()=>openUploadTask(uploadContext.job);$("#saveRole").before(back)}
+ if(uploadContext){$("#closeModal").onclick=()=>{uploadContext.item.editing=false;$("#modal").close()};$("#editAnalyze").hidden=true;const modelField=$("#editAnalysisModel")?.closest("label");if(modelField)modelField.hidden=true;$("#saveRole").textContent="应用编辑";const note=document.createElement("p");note.className="form-note";note.textContent="编辑只更新这张素材的草稿，返回任务后点击保存才进入素材库。";$("#editForm").prepend(note);const back=document.createElement("button");back.type="button";back.textContent="返回任务";back.onclick=()=>openUploadTask(uploadContext.job);$("#saveRole").before(back)}
  wireProjects("editProjects");
  const commitPendingTag=wireManualTags("#formError");
  $("#editForm").onsubmit=async e=>{e.preventDefault();if(!commitPendingTag())return;$("#saveRole").disabled=true;try{const b=Object.fromEntries(new FormData(e.currentTarget));if(uploadContext&&!uploadContext.item.role){Object.assign(uploadContext.item,b,{tags:state.editTags.map(t=>({...t})),projectNames:selectedProjects("editProjects"),edited:true});openUploadTask(uploadContext.job);toast("草稿已更新");return}const result=await api(assetPath(r),{method:"PATCH",body:JSON.stringify({...b,projectNames:selectedProjects("editProjects"),groupingMode:"manual",identity:r.identity,revision:r.revision,tags:state.editTags})});if(uploadContext){uploadContext.item.role=result.role;await refresh(true);openUploadTask(uploadContext.job);toast("草稿已更新")}else{await refresh(true);details(result.role);toast("素材已保存")}}catch(e){$("#formError").textContent=e.message;$("#saveRole").disabled=false}};
@@ -260,6 +260,8 @@ async function preview(file){
 }
 const uploadJobs=new Map();
 let backgroundBaidu=null;
+function uploadItemBusy(item){return !!(item.busy||item.saving)}
+function updateUploadActivity(job){job.active=!!((job.activeRuns||0)||(job.savingCount||0));job.saving=!!job.savingCount}
 function ownedUploadJobs(){return [...uploadJobs.values()].filter(j=>j.owner===state.user?.id)}
 function restoreUploadJobs(roles){
  for(const batch of new Set(roles.map(r=>r.uploadBatch).filter(Boolean))){
@@ -276,10 +278,11 @@ function taskChanged(job){
 }
 function openUploadTask(job){
  if(job.owner!==state.user?.id)return;
+ for(const item of job.items)item.editing=false;
  if(job.formNode){$("#modalContent .dialog-head h2").textContent="上传素材";$("#modalContent .dialog-body").replaceChildren(job.formNode);$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal();paintUploadTask(job);return}
  modal("上传素材",'<div id="uploadTaskBody"></div>');$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;paintUploadTask(job);
 }
-function uploadRows(job){return job.items.map((i,n)=>'<div class="task-item"><div class="task-material">'+(i.role?.imageUrl||i.previewUrl?'<img class="task-thumbnail" src="'+esc(i.role?.imageUrl||i.previewUrl)+'" alt="">':'')+'<strong>'+esc(i.role?.name||i.file?.name||i.name)+'</strong><p class="'+(i.error?'error':'form-note')+'">'+esc(i.error||i.status)+'</p></div>'+'<div class="task-item-actions">'+(i.role||i.file?'<button type="button" data-task-detail="'+n+'">查看</button>':'')+(i.saved||i.cancelled?'<span class="form-note">'+(i.saved?'已保存':'已取消')+'</span>':'<button type="button" data-task-retry="'+n+'" '+(job.active||job.saving||i.cancelRequested||i.status==="分析完成"||i.role&&!canAnalyze()?'disabled':'')+'>重试</button><button type="button" data-task-analyze="'+n+'" '+(job.active||job.saving||i.cancelRequested||!canAnalyze()?'disabled':'')+'>分析</button><button type="button" data-task-edit="'+n+'" '+(job.active||job.saving||i.cancelRequested?'disabled':'')+'>编辑</button><button type="button" data-task-save="'+n+'" '+(job.saving||i.cancelRequested?'disabled':'')+'>保存</button><button type="button" data-task-cancel="'+n+'" '+(job.saving||i.cancelRequested?'disabled':'')+'>取消</button>')+'</div>'+'</div>').join("")}
+function uploadRows(job){return job.items.map((i,n)=>'<div class="task-item"><div class="task-material">'+(i.role?.imageUrl||i.previewUrl?'<img class="task-thumbnail" src="'+esc(i.role?.imageUrl||i.previewUrl)+'" alt="">':'')+'<strong>'+esc(i.role?.name||i.file?.name||i.name)+'</strong><p class="'+(i.error?'error':'form-note')+'">'+esc(i.error||i.status)+'</p></div>'+'<div class="task-item-actions">'+(i.role||i.file?'<button type="button" data-task-detail="'+n+'">查看</button>':'')+(i.saved||i.cancelled?'<span class="form-note">'+(i.saved?'已保存':'已取消')+'</span>':'<button type="button" data-task-retry="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested||i.status==="分析完成"||i.role&&!canAnalyze()?'disabled':'')+'>重试</button><button type="button" data-task-analyze="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested||!canAnalyze()?'disabled':'')+'>分析</button><button type="button" data-task-edit="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested?'disabled':'')+'>编辑</button><button type="button" data-task-save="'+n+'" '+(i.saving||i.cancelRequested?'disabled':'')+'>保存</button><button type="button" data-task-cancel="'+n+'" '+(i.saving||i.cancelRequested?'disabled':'')+'>取消</button>')+'</div>'+'</div>').join("")}
 function paintInlineUpload(job){
  const form=job.formNode,body=form.querySelector("#uploadTaskBody"),list=form.querySelector("#fileList");body.dataset.running=String(job.active);
  const template=document.createElement("div");template.innerHTML=uploadRows(job);[...template.children].forEach((node,n)=>{let row=list.children[n];if(!row){row=document.createElement("div");row.className="task-item";list.append(row)}row.innerHTML=node.innerHTML});while(list.children.length>job.items.length)list.lastElementChild.remove();
@@ -298,7 +301,7 @@ function wireUploadActions(job,body){
 
  body.querySelectorAll("[data-task-retry]").forEach(b=>b.onclick=()=>job.formNode?job.begin(false,job.items[Number(b.dataset.taskRetry)],true):runUploadTask(job,true,job.items[Number(b.dataset.taskRetry)]));
  body.querySelectorAll("[data-task-analyze]").forEach(b=>b.onclick=()=>job.formNode?job.begin(false,job.items[Number(b.dataset.taskAnalyze)],true,true):runUploadTask(job,true,job.items[Number(b.dataset.taskAnalyze)],true));
- body.querySelectorAll("[data-task-edit]").forEach(b=>b.onclick=async()=>{const item=job.items[Number(b.dataset.taskEdit)];b.disabled=true;try{if(item.role)await syncUploadRoles(job,item);if(job.active||item.cancelled||item.saved)return;editRole(item.role||{name:item.name,description:item.description||"",generationPrompt:item.generationPrompt||"",tags:item.tags||[],projectNames:item.projectNames||selectedProjects("uploadProjects")},{job,item})}catch(error){job.error=error.message;taskChanged(job)}});
+ body.querySelectorAll("[data-task-edit]").forEach(b=>b.onclick=async()=>{const item=job.items[Number(b.dataset.taskEdit)];b.disabled=true;try{if(item.role)await syncUploadRoles(job,item);if(uploadItemBusy(item)||item.cancelled||item.saved)return;item.editing=true;editRole(item.role||{name:item.name,description:item.description||"",generationPrompt:item.generationPrompt||"",tags:item.tags||[],projectNames:item.projectNames||selectedProjects("uploadProjects")},{job,item})}catch(error){job.error=error.message;taskChanged(job)}});
  body.querySelectorAll("[data-task-save]").forEach(b=>b.onclick=()=>{const item=job.items[Number(b.dataset.taskSave)];return item.role?saveUploadTask(job,item):job.begin(true,item)});
  body.querySelectorAll("[data-task-cancel]").forEach(b=>b.onclick=()=>cancelUploadItem(job,job.items[Number(b.dataset.taskCancel)]));
 }
@@ -321,37 +324,41 @@ function paintUploadTask(job){
 async function syncUploadRoles(job,onlyItem=null){
  const library=await api("/api/library");for(const item of onlyItem?[onlyItem]:job.items){if(!item.role||item.cancelled)continue;const current=[...(library.drafts||[]),...(library.roles||[])].find(r=>r.identity===item.role.identity);if(current){item.role=current;if(current.analysisStatus==="done"){item.status="分析完成";item.error=""}else if(current.analysisStatus==="failed"){item.status="分析失败";item.error=current.analysisError||item.error}}}
 }
-async function runUploadTask(job,retry=false,onlyItem=null,forceAnalysis=false){
- if(job.active||job.saved||job.owner!==state.user?.id)return;
- if(onlyItem&&(onlyItem.saved||onlyItem.cancelled||onlyItem.cancelRequested))return;
+async function runUploadTask(job,retry=false,onlyItem=null,forceAnalysis=false,options=null){
+ const settings={fields:{...job.fields},projects:[...job.projects],tags:[...job.tags],auto:job.auto,choice:job.choice,concurrency:job.concurrency,directSave:job.directSave,directItem:job.directItem,...options};
+ if((!onlyItem&&job.active)||job.saved||job.owner!==state.user?.id)return;
+ if(onlyItem&&(onlyItem.saved||onlyItem.cancelled||onlyItem.cancelRequested||uploadItemBusy(onlyItem)))return;
  if(forceAnalysis&&onlyItem)onlyItem.status="等待分析";
- if(onlyItem?.role)job.auto=true;
- const scope=(onlyItem?[onlyItem]:job.items).filter(i=>!i.saved&&!i.cancelled&&!i.cancelRequested);
- job.active=true;job.stopRequested=false;job.error="";job.status=retry?"正在重试":"正在准备";taskChanged(job);
+ if(onlyItem?.role&&!settings.directSave)settings.auto=true;
+ const scope=(onlyItem?[onlyItem]:job.items).filter(i=>!i.saved&&!i.cancelled&&!i.cancelRequested&&!uploadItemBusy(i));
+ if(!scope.length)return;
+ if(onlyItem)onlyItem.busy=true;
+ const token={};for(const item of scope)item.runToken=token;
+ if(!job.active)job.stopRequested=false;job.activeRuns=(job.activeRuns||0)+1;updateUploadActivity(job);job.error="";job.status=retry?"正在重试":"正在准备";taskChanged(job);
  const allowed=()=>!job.cancelRequested&&job.owner===state.user?.id;
  try{
   if(retry){await syncUploadRoles(job,onlyItem);if(forceAnalysis&&onlyItem)onlyItem.status="等待分析"}
   let next=0;const uploads=scope.filter(i=>!i.role&&i.file);
-  const uploadOne=async()=>{while(next<uploads.length&&allowed()){const item=uploads[next++];if(item.cancelRequested||item.cancelled||item.saved)continue;item.status="正在准备";item.error="";taskChanged(job);try{
+  const uploadOne=async()=>{while(next<uploads.length&&allowed()){const item=uploads[next++];if(item.cancelRequested||item.cancelled||item.saved||item.runToken!==token)continue;while(item.editing&&allowed())await new Promise(r=>setTimeout(r,25));if(!allowed()||item.cancelRequested||item.cancelled||item.saved||item.runToken!==token)continue;item.busy=true;item.status="正在准备";item.error="";taskChanged(job);try{
    if(item.file.size>20*1048576)throw new Error("超过20MB");
-   const f=new FormData();f.append("file",item.file);f.append("preview",await preview(item.file));f.append("uploadBatch",job.id);f.append("uploadAutoAnalyze",job.auto?"1":"0");f.append("projectNames",JSON.stringify(item.projectNames||job.projects));f.append("projectName",(item.projectNames||job.projects)[0]||"未分组");f.append("groupingMode",!job.auto&&job.fields.groupingMode==="ai"?"manual":job.fields.groupingMode);f.append("namingMode",item.edited?"custom":!job.auto&&job.fields.namingMode==="ai"?"custom":job.fields.namingMode);f.append("name",item.name);f.append("generationPrompt",item.generationPrompt||job.fields.generationPrompt||"");f.append("description",item.description||"");f.append("tags",JSON.stringify(item.tags||job.tags));
-   item.role=(await api("/api/assets",{method:"POST",body:f})).role;if(item.description&&item.role.description!==item.description)item.role=(await api(assetPath(item.role),{method:"PATCH",body:JSON.stringify({...item.role,description:item.description,identity:item.role.identity,revision:item.role.revision})})).role;item.status=job.auto?"等待分析":"准备完成";
-  }catch(error){item.status="准备失败";item.error=error.message}finally{taskChanged(job)}}};
+   const f=new FormData();f.append("file",item.file);f.append("preview",await preview(item.file));f.append("uploadBatch",job.id);f.append("uploadAutoAnalyze",settings.auto?"1":"0");f.append("projectNames",JSON.stringify(item.projectNames||settings.projects));f.append("projectName",(item.projectNames||settings.projects)[0]||"未分组");f.append("groupingMode",!settings.auto&&settings.fields.groupingMode==="ai"?"manual":settings.fields.groupingMode);f.append("namingMode",item.edited?"custom":!settings.auto&&settings.fields.namingMode==="ai"?"custom":settings.fields.namingMode);f.append("name",item.name);f.append("generationPrompt",item.generationPrompt||settings.fields.generationPrompt||"");f.append("description",item.description||"");f.append("tags",JSON.stringify(item.tags||settings.tags));
+   item.role=(await api("/api/assets",{method:"POST",body:f})).role;if(item.description&&item.role.description!==item.description)item.role=(await api(assetPath(item.role),{method:"PATCH",body:JSON.stringify({...item.role,description:item.description,identity:item.role.identity,revision:item.role.revision})})).role;item.status=settings.auto?"等待分析":"准备完成";
+  }catch(error){item.status="准备失败";item.error=error.message}finally{item.busy=false;taskChanged(job)}}};
   await Promise.all(Array.from({length:Math.min(3,uploads.length)},uploadOne));
-  if(job.auto&&allowed()&&!job.stopRequested){
-   job.status="模型分析";let cursor=0;const jobs=scope.filter(i=>i.role&&i.status!=="分析完成"&&!i.cancelRequested),limit=job.choice==="api"?job.concurrency:Math.min(job.concurrency,codexLocal.maxConcurrent||1);
-   const analyzeOne=async()=>{while(cursor<jobs.length&&allowed()&&!job.stopRequested){const item=jobs[cursor++];if(item.cancelRequested)continue;item.status="正在分析";item.error="";taskChanged(job);try{item.role=(await analyzeAsset(item.role,job.choice)).role;item.status="分析完成"}catch(error){item.status="分析失败";item.error=error.message;try{await syncUploadRoles(job,item)}catch{}}finally{taskChanged(job)}}};
+  if(settings.auto&&allowed()&&!job.stopRequested){
+   job.status="模型分析";let cursor=0;const jobs=scope.filter(i=>i.role&&i.status!=="分析完成"&&!i.cancelRequested),limit=settings.choice==="api"?settings.concurrency:Math.min(settings.concurrency,codexLocal.maxConcurrent||1);
+   const analyzeOne=async()=>{while(cursor<jobs.length&&allowed()&&!job.stopRequested){const item=jobs[cursor++];if(item.cancelRequested||item.saved||item.cancelled||item.runToken!==token)continue;while((item.editing||(job.analysisInFlight||0)>=limit)&&allowed()&&!job.stopRequested)await new Promise(r=>setTimeout(r,25));if(!allowed()||job.stopRequested||item.cancelRequested||item.saved||item.cancelled||item.runToken!==token)continue;job.analysisInFlight=(job.analysisInFlight||0)+1;item.busy=true;item.status="正在分析";item.error="";taskChanged(job);try{item.role=(await analyzeAsset(item.role,settings.choice)).role;item.status="分析完成"}catch(error){item.status="分析失败";item.error=error.message;try{await syncUploadRoles(job,item)}catch{}}finally{job.analysisInFlight--;item.busy=false;taskChanged(job)}}};
    await Promise.all(Array.from({length:Math.min(limit,jobs.length)},analyzeOne));
   }
-  for(const item of job.items)if(item.role&&item.status==="等待分析"&&job.stopRequested)item.status="未分析";
-  job.status=job.owner!==state.user?.id?"等待原账号继续处理":job.stopRequested?"分析已停止，等待保存":"等待保存";
+  for(const item of scope)if(item.role&&item.status==="等待分析"&&job.stopRequested)item.status="未分析";
+  if(job.activeRuns===1)job.status=job.owner!==state.user?.id?"等待原账号继续处理":job.stopRequested?"分析已停止，等待保存":"等待保存";
  }catch(error){job.error=error.message;job.status="处理失败"}finally{
-  job.active=false;if(job.cancelRequested)await discardUploadTask(job);else{for(const item of job.items.filter(i=>i.cancelRequested))await discardUploadItem(job,item);taskChanged(job);if(job.directSave)await saveUploadTask(job,job.directItem||null)}
+  for(const item of scope)if(item.runToken===token)item.busy=false;job.activeRuns--;updateUploadActivity(job);if(job.cancelRequested){if(!job.active)await discardUploadTask(job)}else{for(const item of scope.filter(i=>i.cancelRequested&&!uploadItemBusy(i)))await discardUploadItem(job,item);taskChanged(job);if(settings.directSave)await saveUploadTask(job,settings.directItem||null)}
  }
 }
 async function cancelUploadItem(job,item){
- if(job.saving||item.saved||item.cancelled||job.owner!==state.user?.id)return;
- const busy=item.status==="正在分析"||item.status==="正在准备";item.cancelRequested=true;item.error="";item.status="等待取消";taskChanged(job);
+ if(item.saving||item.saved||item.cancelled||job.owner!==state.user?.id)return;
+ const busy=!!item.busy;item.cancelRequested=true;item.error="";item.status="等待取消";taskChanged(job);
  if(!busy)await discardUploadItem(job,item);
 }
 async function discardUploadItem(job,item){
@@ -372,14 +379,14 @@ async function discardUploadTask(job){
 }
 async function saveUploadTask(job,onlyItem=null){
  if(job.owner!==state.user?.id)return;
- if(job.active){if($("#modal").dataset.taskId===job.id)$("#modal").close();toast("任务继续在后台运行，分析完成后可再保存");return}
- const selected=(onlyItem?[onlyItem]:job.items).filter(i=>i.role&&!i.saved&&!i.cancelled&&!i.cancelRequested);if(!selected.length)return;
- job.active=true;job.saving=true;job.status="正在保存";job.error="";taskChanged(job);
+ if((onlyItem?uploadItemBusy(onlyItem):job.active)){if($("#modal").dataset.taskId===job.id)$("#modal").close();toast("任务继续在后台运行，分析完成后可再保存");return}
+ const selected=(onlyItem?[onlyItem]:job.items).filter(i=>i.role&&!i.saved&&!i.cancelled&&!i.cancelRequested&&!uploadItemBusy(i));if(!selected.length)return;
+ for(const item of selected){item.saving=true;item.runToken=null}job.savingCount=(job.savingCount||0)+1;updateUploadActivity(job);job.status="正在保存";job.error="";taskChanged(job);
  try{
   const result=await post("/api/upload-batches",{batch:job.id,action:"save",identities:selected.map(i=>i.role.identity)});
   for(const item of selected){const saved=(result.roles||[]).find(r=>r.identity===item.role.identity);if(saved)item.role=saved;item.saved=true;item.file=null}
   job.saved=job.items.every(i=>i.saved||i.cancelled);job.status=job.saved?(result.backupQueued?"已保存，网盘备份在后台运行":"已保存"):"部分已保存，其他素材等待处理";job.error=result.backupError||"";await refresh(true);globalThis.resumeBaiduBackup?.();toast(result.backupQueued?"已保存，正在后台备份网盘":"素材已保存");
- }catch(error){job.error=error.message;job.status="保存失败"}finally{job.active=false;job.saving=false;job.directSave=false;taskChanged(job)}
+ }catch(error){job.error=error.message;job.status="保存失败"}finally{for(const item of selected)item.saving=false;job.savingCount--;updateUploadActivity(job);job.directSave=false;if(job.active)job.status="模型分析";taskChanged(job)}
 }
 function paintBackgroundTasks(){
  const body=$("#backgroundTasksBody");if(!body)return;
@@ -421,14 +428,15 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
  $("#namingMode").dispatchEvent(new Event("change"));
  $("#autoAnalyze").onchange=()=>{$("#uploadProjectField").hidden=$("#groupingMode").value!=="manual"&&$("#autoAnalyze").checked;$("#customNames").hidden=$("#namingMode").value!=="custom"&&$("#autoAnalyze").checked};
  const beginUpload=(direct=false,onlyItem=null,retry=false,force=false)=>{
-  if(job.active){if(direct)$("#modal").close();return}
+  if(job.active&&!onlyItem){if(direct)$("#modal").close();return}
+  if(onlyItem&&uploadItemBusy(onlyItem)){if(direct)$("#modal").close();return}
   const fields=Object.fromEntries(new FormData(job.formNode)),auto=force||!direct&&$("#autoAnalyze").checked,choice=$("#uploadAnalysisModel")?.value;
   if(auto&&!canAnalyze()){$("#uploadError").textContent="请先连接本机模型或配置 API 模型，或取消自动分析。";return}
   for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const item=job.items[Number(input.dataset.customName)];if(item&&!item.edited)item.name=input.value}
   const remaining=job.items.filter(i=>!i.saved&&!i.cancelled);if(!remaining.length)return;
   if(direct&&(onlyItem?!!onlyItem.role:remaining.every(i=>i.role))){saveUploadTask(job,onlyItem);return}
   if(fields.namingMode==="custom"&&remaining.some(i=>!i.name.trim())){$("#uploadError").textContent="请为每个素材输入名称";return}
-  Object.assign(job,{fields,projects:selectedProjects("uploadProjects"),auto,choice,concurrency:Number($("#analysisConcurrency").value)||3,started:true,directSave:direct,directItem:onlyItem,saved:false});uploadJobs.set(job.id,job);localStorage.setItem("atlas-analysis-concurrency",String(job.concurrency));runUploadTask(job,retry,onlyItem,force);
+  Object.assign(job,{fields,projects:selectedProjects("uploadProjects"),auto:job.active?job.auto||auto:auto,choice,concurrency:Number($("#analysisConcurrency").value)||3,started:true,directSave:direct,directItem:onlyItem,saved:false});uploadJobs.set(job.id,job);localStorage.setItem("atlas-analysis-concurrency",String(job.concurrency));runUploadTask(job,retry,onlyItem,force,{fields,projects:[...job.projects],auto,choice,concurrency:job.concurrency,directSave:direct,directItem:onlyItem});
  };
  job.begin=beginUpload;$("#uploadForm").onsubmit=e=>{e.preventDefault();beginUpload(false)};$("#directSaveUpload").onclick=()=>beginUpload(true);paintUploadTask(job);
 }
