@@ -186,7 +186,7 @@ function details(r,uploadContext=null){
 }
 function enlargeImage(r){
  let viewer=$("#imageViewer");if(!viewer){viewer=document.createElement("dialog");viewer.id="imageViewer";viewer.setAttribute("aria-label","放大素材图片");document.body.append(viewer)}
- viewer.innerHTML='<button type="button" id="closeImageViewer" aria-label="关闭放大图片">×</button><div class="image-viewer-stage"><img id="enlargedImage" src="'+esc(r.downloadUrl||r.imageUrl)+'" alt="'+esc(r.name)+'"></div>';
+ viewer.innerHTML='<div class="image-viewer-heading"><h2>素材预览</h2></div><div class="image-viewer-stage"><img id="enlargedImage" src="'+esc(r.downloadUrl||r.imageUrl)+'" alt="'+esc(r.name)+'"></div><div class="image-viewer-actions"><a id="downloadEnlargedImage" href="'+esc(r.downloadUrl||r.imageUrl)+'" download="'+esc(r.filename||r.name)+'">下载原图</a><button type="button" id="closeImageViewer">返回详情</button></div>';
  const image=$("#enlargedImage");image.onerror=()=>{image.onerror=null;image.src=r.imageUrl};$("#closeImageViewer").onclick=()=>viewer.close();viewer.querySelector(".image-viewer-stage").onclick=e=>{if(e.target===e.currentTarget)viewer.close()};viewer.onclose=()=>{viewer.innerHTML=""};viewer.showModal();
 }
 function pendingUploadRole(item,job){return {id:"待保存",name:item.name,filename:item.file?.name||item.name,description:item.description||"",generationPrompt:item.generationPrompt||"",tags:item.tags||[],projectNames:item.projectNames||job.projects||[],size:item.file?.size||0,createdAt:new Date(job.createdAt).toISOString(),imageUrl:item.previewUrl||"",downloadUrl:item.previewUrl||""}}
