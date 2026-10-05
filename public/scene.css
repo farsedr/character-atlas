@@ -74,7 +74,7 @@ dialog::backdrop{background:transparent!important;backdrop-filter:none!important
 .task-item>div{min-width:0}.task-item strong,.task-item p{overflow-wrap:anywhere}.task-item p{margin:8px 0 0}.task-item button{flex-shrink:0}
 #backgroundTasksBody>.form-note:first-child,#uploadTaskBody>.form-note:first-child{margin-top:0;padding-top:4px;line-height:1.8;white-space:normal;overflow-wrap:anywhere}
 
-.task-item-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;max-width:55%}.task-item-actions .form-note{margin:0}@media(max-width:700px){.task-item{align-items:flex-start;flex-direction:column}.task-item-actions{justify-content:flex-start;max-width:100%}}
+.task-item-actions{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;justify-content:flex-end;flex-shrink:0;max-width:none}.task-item-actions .form-note{margin:0}@media(max-width:700px){.task-item{align-items:flex-start;flex-direction:column}.task-item-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));justify-content:flex-start;width:100%;max-width:100%;gap:4px}.task-item-actions>button{min-width:0!important;padding:10px 2px!important;font-size:14px}}
 
 /* Keep status messages above native modal dialogs. */
 #toast{position:fixed;inset:auto auto 24px 50%;transform:translateX(-50%);margin:0;width:max-content;max-width:calc(100vw - 32px);padding:12px 20px;line-height:1.6;text-align:center;overflow-wrap:anywhere;z-index:2147483647;pointer-events:none}
@@ -93,3 +93,5 @@ dialog::backdrop{background:transparent!important;backdrop-filter:none!important
 .gallery-pagination{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;margin:24px 0 8px}.gallery-pagination>span{margin-right:auto;line-height:1.6}.gallery-pagination button{min-height:44px;line-height:1.5}
 
 .page-jump{display:flex;align-items:center;gap:8px;margin:0}.page-jump label{margin:0;white-space:nowrap;line-height:1.5}.page-jump input{width:76px;margin:0;min-height:44px;text-align:center}.page-jump button{min-height:44px}
+
+.image-viewer-stage{touch-action:none;overscroll-behavior:contain}.image-viewer-stage img{transform-origin:center;user-select:none;-webkit-user-drag:none}
