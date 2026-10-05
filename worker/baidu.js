@@ -56,16 +56,16 @@ async function baiduStatus(env,owner){
 async function enqueueBaidu(env,owner,identity){
  const c=await baiduConnection(env,owner);if(!c||c.status!=="connected"||!baiduSettings(env))return;
  const cfg=baiduSettings(env),date=new Date().toISOString();
- await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL"+(identity?" AND id=?":""),c.id,cfg.folder,date,owner,...(identity?[identity]:[])).run();
+ await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,\'$.uploadDraft\'),0)=0"+(identity?" AND id=?":""),c.id,cfg.folder,date,owner,...(identity?[identity]:[])).run();
 }
 // One resumable stage per request. A lease prevents two devices uploading the same part.
 async function baiduStep(env,owner){
  const auth=await baiduAccess(env,owner),claim=crypto.randomUUID(),time=Date.now();
- const job=await query(env,"UPDATE atlas_baidu_backups SET lease_id=?,lease_until=?,updated_at=? WHERE asset_id=(SELECT b.asset_id FROM atlas_baidu_backups b JOIN atlas_assets a ON a.id=b.asset_id AND a.owner_id=b.owner_id WHERE b.owner_id=? AND b.connection_id=? AND b.status='pending' AND b.lease_until<? AND a.deleted_at IS NULL ORDER BY b.updated_at LIMIT 1) RETURNING *",claim,time+60000,new Date().toISOString(),owner,auth.connection.id,time).first();
+ const job=await query(env,"UPDATE atlas_baidu_backups SET lease_id=?,lease_until=?,updated_at=? WHERE asset_id=(SELECT b.asset_id FROM atlas_baidu_backups b JOIN atlas_assets a ON a.id=b.asset_id AND a.owner_id=b.owner_id WHERE b.owner_id=? AND b.connection_id=? AND b.status='pending' AND b.lease_until<? AND a.deleted_at IS NULL AND COALESCE(json_extract(a.body,\'$.uploadDraft\'),0)=0 ORDER BY b.updated_at LIMIT 1) RETURNING *",claim,time+60000,new Date().toISOString(),owner,auth.connection.id,time).first();
  if(!job)return {worked:false};
  const write=async(fields)=>{const keys=Object.keys(fields);return query(env,"UPDATE atlas_baidu_backups SET "+keys.map(k=>k+"=?").join(",")+",lease_until=0,lease_id='',updated_at=? WHERE asset_id=? AND owner_id=? AND lease_id=? AND connection_id IN (SELECT id FROM atlas_baidu_connections WHERE owner_id=?)",...Object.values(fields),new Date().toISOString(),job.asset_id,owner,claim,owner).run()};
  try{
-  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",job.asset_id,owner).first();if(!row)throw new HttpError(409,"素材已移入回收站");
+  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",job.asset_id,owner).first();if(!row||JSON.parse(row.body).uploadDraft)throw new HttpError(409,"素材已移入回收站");
   if(!job.upload_id){
    const object=await bucket(env).get(row.original_key);if(!object)throw new HttpError(404,"原图不存在");const bytes=new Uint8Array(await object.arrayBuffer());if(bytes.length!==row.size)throw new HttpError(409,"原图大小不一致");const blocks=[];for(let i=0;i<bytes.length;i+=BAIDU_PART)blocks.push(baiduMD5(bytes.subarray(i,i+BAIDU_PART)));
    const pre=await baiduAPI(env,owner,"xpan/file",{method:"precreate"},{path:job.remote_path,size:String(row.size),isdir:"0",autoinit:"1",rtype:"2",block_list:JSON.stringify(blocks)});

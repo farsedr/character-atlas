@@ -36,7 +36,7 @@ async function persistLabels(env,tags,owner){const statements=labelStatements(en
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
  const id=publicId(row.display_number);
- return {id,identity:row.id,name:r.name,description:r.description||"",tags,classification:classify(tags),projectNames:r.projectNames||[r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组"],projectIds:r.projectIds||[r.projectId].filter(Boolean),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",groupingMode:r.groupingMode||((r.projectName&&r.projectName!=="未分组")?"manual":"ai"),namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
+ return {id,identity:row.id,uploadDraft:!!r.uploadDraft,uploadBatch:r.uploadBatch||"",uploadAutoAnalyze:!!r.uploadAutoAnalyze,analysisError:r.analysisError||"",name:r.name,description:r.description||"",tags,classification:classify(tags),projectNames:r.projectNames||[r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组"],projectIds:r.projectIds||[r.projectId].filter(Boolean),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",groupingMode:r.groupingMode||((r.projectName&&r.projectName!=="未分组")?"manual":"ai"),namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
 }
 function classify(tags){return Object.fromEntries(dimensions().map(d=>[d,tags.find(t=>t.dimension===d)?.name||"未标注"]))}
 function signature(bytes){if(bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71&&bytes[4]===13&&bytes[5]===10&&bytes[6]===26&&bytes[7]===10)return "image/png";if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return "image/jpeg";if(String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP")return "image/webp";return ""}
@@ -63,8 +63,30 @@ async function project(env,owner,name){
  return query(env,"SELECT * FROM atlas_projects WHERE name_key=?",key).first();
 }
 async function memberships(env,owner,names){if(!Array.isArray(names)||names.length>30)throw new HttpError(400,"最多选择30个灵感集");const ps=[];for(const name of ([...new Set(names.map(clean))].length?[...new Set(names.map(clean))]:["未分组"]))ps.push(await project(env,owner,name));return {projectId:ps[0].id,projectName:ps[0].name,projectIds:ps.map(p=>p.id),projectNames:ps.map(p=>p.name)}}
+async function draftMemberships(env,owner,names){
+ names=[...new Set((Array.isArray(names)?names:["未分组"]).map(clean))];if(!names.length)names=["未分组"];if(names.length>30)throw new HttpError(400,"最多选择30个灵感集");
+ const existing=(await query(env,"SELECT * FROM atlas_projects WHERE owner_id=?",owner).all()).results;
+ const ids=names.map(n=>existing.find(p=>normalize(p.name)===normalize(n))?.id||"");return {projectName:names[0],projectNames:names,projectId:ids[0],projectIds:ids.filter(Boolean)};
+}
+async function uploadBatch(request,env,owner,ctx){
+ const b=await request.json();if(typeof b.batch!=="string"||!/^[a-zA-Z0-9-]{8,100}$/.test(b.batch)||!["save","cancel"].includes(b.action))throw new HttpError(400,"上传批次无效");
+ const all=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=?",owner,b.batch).all()).results;
+ const drafts=all.filter(r=>JSON.parse(r.body).uploadDraft);
+ if(drafts.some(r=>JSON.parse(r.body).analysisStatus==="analyzing"&&Date.now()-(JSON.parse(r.body).analysisStarted||0)<90000))throw new HttpError(409,"仍有分析请求正在执行，请稍后再"+(b.action==="save"?"保存":"取消"));
+ if(b.action==="cancel"){
+  let deleted=0;const errors=[];for(const row of drafts){try{for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1",row.id,owner).run();deleted++}catch{errors.push({identity:row.id,error:"临时文件清理失败，请重试取消"})}}
+  return json({deleted,failed:errors.length,errors});
+ }
+ for(const row of drafts){const role=JSON.parse(row.body),groups=await memberships(env,owner,role.projectNames||[role.projectName||"未分组"]);await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",JSON.stringify({...role,...groups}),row.id,owner,row.revision).run()}
+ const saved=(await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.uploadDraft',0),deleted_at=NULL,revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1 RETURNING *",owner,b.batch).all()).results;
+ const committed=all.filter(r=>!JSON.parse(r.body).uploadDraft).concat(saved);let backupQueued=false,backupError="";
+ for(const row of committed)await persistLabels(env,JSON.parse(row.body).tags||[],owner);
+ try{const connection=await baiduConnection(env,owner);if(connection?.status==="connected"){for(const row of committed)await enqueueBaidu(env,owner,row.id);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError="素材已保存，网盘备份启动失败；请在云盘连接中重试备份"}
+ return json({saved:committed.length,roles:committed.map(bodyRole),backupQueued,backupError});
+}
 async function upload(request,env,owner,ctx){
  const form=await request.formData(),file=form.get("file"),preview=form.get("preview");
+ const uploadBatch=String(form.get("uploadBatch")||"");if(uploadBatch&&!/^[a-zA-Z0-9-]{8,100}$/.test(uploadBatch))throw new HttpError(400,"上传批次无效");const uploadDraft=!!uploadBatch;
  if(!(file instanceof File)||!file.size||file.size>MAX_FILE)throw new HttpError(400,"请选择20MB以内PNG、JPEG、WebP");
  const bytes=await file.arrayBuffer(),b8=new Uint8Array(bytes),mime=signature(b8);if(!mime)throw new HttpError(400,"图片格式无效");
  const dims=imageDimensions(b8,mime);
@@ -73,25 +95,25 @@ async function upload(request,env,owner,ctx){
  const mode=String(form.get("namingMode")||"original");if(!["original","custom","ai"].includes(mode))throw new HttpError(400,"命名方式无效");
  const filename=file.name.replace(/[\x00-\x1f/\\]/g,"_").slice(0,180),name=mode==="custom"?textValue(String(form.get("name")||""),80):textValue(filename,180);
  let requestedTags=[];try{requestedTags=JSON.parse(String(form.get("tags")||"[]"))}catch{throw new HttpError(400,"手动标签格式无效")}const tags=await canonicalTags(env,requestedTags,"manual",owner);
- const requestedGrouping=form.get("groupingMode"),requestedProject=String(form.get("projectName")||"未分组");const groupingMode=requestedGrouping==="manual"||(!requestedGrouping&&requestedProject!=="未分组")?"manual":"ai";const p=await project(env,owner,groupingMode==="ai"?"未分组":String(form.get("projectName")||"未分组"));
- let names;try{names=JSON.parse(String(form.get("projectNames")||"null"))}catch{throw new HttpError(400,"灵感集格式无效")}const groups=await memberships(env,owner,groupingMode==="manual"?(names||[p.name]):[p.name]);
+ const requestedGrouping=form.get("groupingMode"),requestedProject=String(form.get("projectName")||"未分组");const groupingMode=requestedGrouping==="manual"||(!requestedGrouping&&requestedProject!=="未分组")?"manual":"ai";const p=uploadDraft?{name:groupingMode==="ai"?"未分组":clean(requestedProject)}:await project(env,owner,groupingMode==="ai"?"未分组":String(form.get("projectName")||"未分组"));
+ let names;try{names=JSON.parse(String(form.get("projectNames")||"null"))}catch{throw new HttpError(400,"灵感集格式无效")}const groups=await (uploadDraft?draftMemberships:memberships)(env,owner,groupingMode==="manual"?(names||[p.name]):[p.name]);
  const id=crypto.randomUUID(),originalKey="originals/"+id,previewKey="previews/"+id,date=new Date().toISOString();
- await persistLabels(env,tags,owner);const role={name,description:"",tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
+ if(!uploadDraft)await persistLabels(env,tags,owner);const role={...(uploadDraft?{uploadDraft,uploadBatch,uploadAutoAnalyze:form.get("uploadAutoAnalyze")==="1"}:{}),name,description:"",tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
  const b=bucket(env);let row;
  try{
   await b.put(originalKey,bytes,{httpMetadata:{contentType:mime}});await b.put(previewKey,previewBytes,{httpMetadata:{contentType:"image/jpeg"}});
   row=await query(env,"INSERT INTO atlas_assets (id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) SELECT ?,?,?,?,?,?,?,1,?,?,("+gapSQL+") WHERE ("+gapSQL+") IS NOT NULL RETURNING *",id,JSON.stringify(role),originalKey,previewKey,mime,filename,file.size,date,owner,owner,owner,owner,owner).first();
   if(!row)throw new HttpError(409,"编号已达到99999，请先删除不需要的素材");
  }catch(e){await Promise.allSettled([b.delete(originalKey),b.delete(previewKey)]);throw e}
- try{const c=await baiduConnection(env,owner);if(c?.auto_backup&&c.status==="connected"){await enqueueBaidu(env,owner,row.id);ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{/* Original upload succeeds even when backup is unavailable. */}
+ try{const c=await baiduConnection(env,owner);if(!uploadDraft&&c?.auto_backup&&c.status==="connected"){await enqueueBaidu(env,owner,row.id);ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{/* Original upload succeeds even when backup is unavailable. */}
  return json({role:bodyRole(row)},201);
 }
 async function saveRole(env,row,input,owner){
  if(!input||input.identity!==row.id||input.revision!==row.revision)throw new HttpError(409,"素材已变化，请刷新");
- const tags=await canonicalTags(env,input.tags||[], "manual",owner),groups=await memberships(env,owner,input.projectNames||[input.projectName||"未分组"]);
+ const tags=await canonicalTags(env,input.tags||[], "manual",owner),groups=await (JSON.parse(row.body).uploadDraft?draftMemberships:memberships)(env,owner,input.projectNames||[input.projectName||"未分组"]);
  const role={...JSON.parse(row.body),groupingMode:input.groupingMode==="ai"?"ai":"manual",tags,classification:classify(tags),name:textValue(input.name,180),description:typeof input.description==="string"?input.description.slice(0,1200):"",generationPrompt:typeof input.generationPrompt==="string"?input.generationPrompt.slice(0,12000):"",...groups,namingMode:"custom"};
  const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
- if(!updated)throw new HttpError(409,"素材已变化，请刷新");await persistLabels(env,tags,owner);return json({role:bodyRole(updated)});
+ if(!updated)throw new HttpError(409,"素材已变化，请刷新");if(!role.uploadDraft)await persistLabels(env,tags,owner);return json({role:bodyRole(updated)});
 }
 
 const protocolIds=["openai","responses","anthropic","gemini"];
@@ -221,12 +243,12 @@ async function saveAnalysis(env,row,owner,parsed,source){
   if(groupingMode==="ai"){
    const raw=Array.isArray(parsed.collectionNames)?parsed.collectionNames:typeof parsed.collectionName==="string"?parsed.collectionName.split(/[、;；]/):[];
    const names=[...new Map(raw.filter(n=>typeof n==="string").map(n=>n.normalize("NFKC").trim()).filter(n=>n&&n.length<=40&&!/[<>\x00-\x1f]/.test(n)&&!["unknown","not_applicable","未分组"].includes(n)).map(n=>[normalize(n),n])).values()].slice(0,10);
-   if(names.length){const existing=(await query(env,"SELECT * FROM atlas_projects WHERE owner_id=?",owner).all()).results;collection=await memberships(env,owner,names.map(n=>existing.find(p=>normalize(p.name)===normalize(n))?.name||n))}
+   if(names.length){const existing=(await query(env,"SELECT * FROM atlas_projects WHERE owner_id=?",owner).all()).results;collection=await (saved.uploadDraft?draftMemberships:memberships)(env,owner,names.map(n=>existing.find(p=>normalize(p.name)===normalize(n))?.name||n))}
   }
   const role={...saved,tags:merged,groupingMode,...(collection||{}),generationPrompt:saved.generationPrompt?.trim()?saved.generationPrompt:generatedPrompt,description:saved.description||analysis.summary,...(saved.namingMode==="ai"?{name:shortName}:{}),analysisStatus:"done",analysisResult:{taxonomy_version:"1.0.0",...analysis,acceptedCount:accepted.length,model:source.model,reasoning:source.reasoning||"low",provider:source.provider,at:new Date().toISOString()}};
   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
   if(!updated)throw new HttpError(409,"分析期间素材已修改或删除，请刷新");
-  await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
+  if(!saved.uploadDraft)await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
 }
 
 async function handleApi(request,env,url,ctx){
@@ -246,9 +268,10 @@ async function handleApi(request,env,url,ctx){
   await ensureSystemCollections(env,owner);
   await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND name NOT IN ("+SYSTEM_COLLECTIONS.map(()=>"?").join(",")+") AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name OR EXISTS (SELECT 1 FROM json_each(a.body,'$.projectNames') j WHERE j.value=atlas_projects.name)))",owner,...SYSTEM_COLLECTIONS).run();
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
-  const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,roles:rows.results.filter(r=>!r.deleted_at).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
+  const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,drafts:rows.results.filter(r=>JSON.parse(r.body).uploadDraft).map(bodyRole),roles:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);
+ if(url.pathname==="/api/upload-batches"&&request.method==="POST")return uploadBatch(request,env,owner,ctx);
  if(url.pathname==="/api/assets"&&request.method==="POST")return upload(request,env,owner,ctx);
  if(url.pathname==="/api/projects"&&request.method==="POST"){const b=await request.json();return json({project:await project(env,owner,b.name)},201)}
  if(url.pathname==="/api/tags"&&request.method==="POST"){
