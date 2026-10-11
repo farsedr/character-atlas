@@ -273,7 +273,7 @@ $("#deleteButton").onclick=()=>deleteDialog(state.roles.filter(r=>state.selected
 function deleteDialog(roles,onDone=null){
  const items=roles.map(r=>({identity:r.identity,revision:r.revision}));if(!items.length)return;
  modal("删除 "+items.length+" 个素材",'<p>素材将移入回收站，可恢复。编号立即释放。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
- $("#cancelDelete").onclick=()=>{if(onDone)onDone();else $("#modal").close()};$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/delete",{items:items.slice(i,i+25)});deleted+=r.deleted}state.selected.clear();await refresh(true);$("#modal").close();if(onDone)onDone();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
+ $("#cancelDelete").onclick=()=>{if(onDone)onDone();else $("#modal").close()};$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/delete",{items:items.slice(i,i+25)});deleted+=r.deleted}state.selected.clear();await refresh(true);if(onDone)onDone();else $("#modal").close();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
 };
 $("#refreshButton").onclick=()=>refresh();
 
@@ -508,7 +508,7 @@ $("#installButton").onclick=async()=>{
  if(installPrompt){await installPrompt.prompt();installPrompt=null;return}
  modal("安装拾光图鉴",'<p>本应用连接同一份云端素材库，安装后使用你的独立账号登录。</p><ul><li>Windows / macOS / Linux：使用 Chrome 或 Edge 打开本站，点击地址栏的安装图标。</li><li>Android：使用 Chrome 菜单中的「安装应用」或「添加到主屏幕」。</li><li>iPhone / iPad：在 Safari 中点击分享，选择「添加到主屏幕」。</li></ul><p class="muted">需要联网同步。服务端代码和密钥不会分发到设备。</p><p><a href="/share/拾光图鉴分享包.zip" download>下载跨平台分享包</a></p>');
 };
-$("#modal").addEventListener("close",()=>{$("#modalContent").innerHTML=""});
+$("#modal").addEventListener("close",()=>{if(!$("#modal").open)$("#modalContent").innerHTML=""});
 $("#modal").addEventListener("cancel",e=>{if($("#closeModal")?.disabled)e.preventDefault()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
 setInterval(()=>{if(state.user&&!document.hidden&&!$("#modal").open&&!$("#filterPopover"))refresh(true)},30000);
