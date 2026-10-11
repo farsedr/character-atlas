@@ -113,3 +113,5 @@ button:hover{border-color:#91afd4;background:#293448}
 /* Child projects stay inside their parent collection card. */
 
 .related-assets{margin:20px 0}.related-assets-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px}.related-assets-grid button{min-width:0;padding:8px;display:flex;flex-direction:column;gap:6px}.related-assets-grid img{width:100%;height:110px;object-fit:contain}.related-assets-grid span{max-width:100%;overflow-wrap:anywhere}
+
+.related-asset-card{display:flex;flex-direction:column;gap:6px;min-width:0}.related-asset-card button{width:100%}.related-asset-card [data-delete-related]{align-items:center}
