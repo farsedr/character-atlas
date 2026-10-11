@@ -112,7 +112,7 @@ $("#authForm").onsubmit=async e=>{
 document.querySelectorAll("[data-auth]").forEach(b=>b.onclick=()=>authMode(b.dataset.auth));
 async function refresh(silent=false){
  if(!state.user)return;try{
- const r=await api("/api/library");Object.assign(state,{roles:r.roles,collections:r.collections||[],drafts:r.drafts||[],labels:r.labels.map(t=>({...t,groupName:tagGroup(ATLAS.taxonomy,t)})),projects:r.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});restoreUploadJobs(r.drafts||[]);
+ const r=await api("/api/library");Object.assign(state,{roles:r.roles,collections:r.collections||[],drafts:r.drafts||[],labels:r.labels.map(t=>({...t,groupName:tagGroup(ATLAS.taxonomy,t)})),projects:r.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled,modelConfig:r.modelConfig});restoreUploadJobs(r);
  const valid=new Set(state.roles.map(r=>r.identity));for(const id of state.selected)if(!valid.has(id))state.selected.delete(id);
  const recycled=new Set(state.recycle.map(r=>r.identity));for(const id of state.recycleSelected)if(!recycled.has(id))state.recycleSelected.delete(id);
  render();if(r.migrationPending)setTimeout(()=>refresh(true),1000);if(!silent)toast(r.migrationPending?"正在同步现有素材，请稍候…":"已同步云端数据");
@@ -175,11 +175,11 @@ function renderAuxiliary(){
    return '<section class="panel"><div class="category-head"><div><h3>'+esc(d.name)+'</h3><span class="muted small">'+esc(d.description||"固定父类别")+' · '+tags.length+' 个子标签</span></div><button data-add-tag="'+d.id+'">＋ 添加子标签</button></div>'+groups.map(g=>'<div class="tag-group"><h4>'+esc(g)+'</h4>'+tags.filter(t=>(tagGroup(ATLAS.taxonomy,t))===g).map(t=>'<span class="chip">'+esc(t.name)+'</span>').join("")+'</div>').join("")+'</section>';
   }).join("");
  }else{
-  $("#content").innerHTML='<div class="dialog-actions"><button id="newProject">新建灵感集</button></div><div class="project-grid">'+allProjects().filter(p=>state.projects.some(x=>x.name===p&&x.isSystem)||state.roles.some(r=>roleProjects(r).includes(p))).map(p=>'<section class="panel project-card"><h3>'+esc(p)+'</h3><span class="muted small">'+(state.projects.some(x=>x.name===p&&x.isSystem)?'系统内置 · 长期保留':'灵感集')+'</span><strong>'+state.roles.filter(r=>roleProjects(r).includes(p)).length+'</strong><button data-project="'+esc(p)+'">浏览素材</button></section>').join("")+'</div>';$("#newProject").onclick=()=>newProject();
+  $("#content").innerHTML='<div class="dialog-actions"><button id="newProject">新建灵感集</button></div><div class="project-grid">'+allProjects().map(p=>'<section class="panel project-card"><h3>'+esc(p)+'</h3><span class="muted small">'+(state.projects.some(x=>x.name===p&&x.isSystem)?'系统内置 · 长期保留':'灵感集')+'</span><strong>'+state.roles.filter(r=>roleProjects(r).includes(p)).length+'</strong><button data-project="'+esc(p)+'">浏览素材</button></section>').join("")+'</div>';$("#newProject").onclick=()=>newProject();
  }
 }
 function recycleSelection(){const count=state.recycleSelected.size;$("#recycleCount").textContent="已选 "+count+" 项";$("#purgeSelected").disabled=!count;$("#clearRecycle").disabled=!state.recycle.length;$("#recycleAll").checked=!!state.recycle.length&&state.recycle.every(r=>state.recycleSelected.has(r.identity));$("#recycleAll").indeterminate=count>0&&count<state.recycle.length}
-function purgeDialog(roles,clear=false){if(!roles.length)return;const items=roles.map(r=>({identity:r.identity,revision:r.revision}));modal(clear?"清空回收站":"永久删除素材",'<p>将永久删除这 '+items.length+' 份素材及其原文件，删除后无法恢复。</p><label class="check"><input type="checkbox" id="deleteBaiduBackup">同时删除百度网盘备份</label><p class="form-note">勾选后只删除这些素材对应的应用备份。网盘删除失败时保留网站素材和备份记录，可重新选择重试；不勾选则保留网盘文件。</p><p id="purgeError" class="error"></p><div class="dialog-actions"><button id="cancelPurge">取消</button><button id="confirmPurge" class="danger">确认永久删除</button></div>');$("#cancelPurge").onclick=()=>$("#modal").close();$("#confirmPurge").onclick=async()=>{const button=$("#confirmPurge");button.disabled=true;$("#closeModal").disabled=true;try{let deleted=0,failed=0;const deleteBaiduBackup=$("#deleteBaiduBackup").checked;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/purge",{items:items.slice(i,i+25),deleteBaiduBackup});deleted+=r.deleted;failed+=r.failed||0}await refresh(true);$("#modal").close();toast("已永久删除 "+deleted+" 项"+(failed?"；部分文件删除失败，可重新选择重试":deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){await refresh(true);$("#purgeError").textContent=e.message;button.disabled=false}finally{if($("#closeModal"))$("#closeModal").disabled=false}}}
+function purgeDialog(roles,clear=false){if(!roles.length)return;const items=roles.map(r=>({identity:r.identity,revision:r.revision}));modal(clear?"清空回收站":"永久删除素材",'<p>将永久删除这 '+items.length+' 份素材及其集合和原文件，删除后无法恢复。</p><label class="check"><input type="checkbox" id="deleteBaiduBackup">同时删除百度网盘备份</label><p class="form-note">勾选后只删除这些素材对应的应用备份。网盘删除失败时保留网站素材和备份记录，可重新选择重试；不勾选则保留网盘文件。</p><p id="purgeError" class="error"></p><div class="dialog-actions"><button id="cancelPurge">取消</button><button id="confirmPurge" class="danger">确认永久删除</button></div>');$("#cancelPurge").onclick=()=>$("#modal").close();$("#confirmPurge").onclick=async()=>{const button=$("#confirmPurge");button.disabled=true;$("#closeModal").disabled=true;try{let deleted=0,failed=0;const deleteBaiduBackup=$("#deleteBaiduBackup").checked;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/purge",{items:items.slice(i,i+25),deleteBaiduBackup});deleted+=r.deleted;failed+=r.failed||0}await refresh(true);$("#modal").close();toast("已永久删除 "+deleted+" 项"+(failed?"；部分文件删除失败，可重新选择重试":deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){await refresh(true);$("#purgeError").textContent=e.message;button.disabled=false}finally{if($("#closeModal"))$("#closeModal").disabled=false}}}
 function roleByIdentity(id){return [...state.roles,...state.recycle].find(r=>r.identity===id)}
 function assetPath(r,action=""){return"/api/assets/"+r.id+(action?"/"+action:"")+"?v="+encodeURIComponent(r.identity)}
 function groupedTags(tags){return '<dl class="analysis-tags">'+ATLAS.taxonomy.map(d=>{const names=[...new Set(tags.filter(t=>t.dimension===d.id).map(t=>t.name))];return names.length?'<div><dt>'+esc(d.name)+'</dt><dd>'+names.map(n=>'<span class="chip">'+esc(n)+'</span>').join("")+'</dd></div>':""}).join("")+'</dl>'}
@@ -273,7 +273,7 @@ $("#downloadButton").onclick=async()=>{const items=state.roles.filter(r=>state.s
 $("#deleteButton").onclick=()=>deleteDialog(state.roles.filter(r=>state.selected.has(r.identity)));
 function deleteDialog(roles,onDone=null){
  const items=roles.map(r=>({identity:r.identity,revision:r.revision}));if(!items.length)return;
- modal("删除 "+items.length+" 个素材",'<p>素材将移入回收站，可恢复。编号立即释放。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
+ modal("删除 "+items.length+" 个素材",'<p>主素材及其集合将移入回收站，可恢复。编号立即释放。</p><p id="formError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmDelete" class="danger">确认删除</button></div>');
  $("#cancelDelete").onclick=()=>{if(onDone)onDone();else $("#modal").close()};$("#confirmDelete").onclick=async()=>{const btn=$("#confirmDelete");btn.disabled=true;try{let deleted=0;for(let i=0;i<items.length;i+=25){const r=await post("/api/assets/delete",{items:items.slice(i,i+25)});deleted+=r.deleted}state.selected.clear();await refresh(true);if(onDone)onDone();else $("#modal").close();toast("已删除 "+deleted+" 项"+(deleted<items.length?"；部分素材已变化，请重新选择":""))}catch(e){$("#formError").textContent=e.message;btn.disabled=false}};
 };
 $("#refreshButton").onclick=()=>refresh();
@@ -289,12 +289,14 @@ let backgroundBaidu=null;
 function uploadItemBusy(item){return !!(item.busy||item.saving)}
 function updateUploadActivity(job){job.active=!!((job.activeRuns||0)||(job.savingCount||0));job.saving=!!job.savingCount}
 function ownedUploadJobs(){return [...uploadJobs.values()].filter(j=>j.owner===state.user?.id)}
-function restoreUploadJobs(roles){
+function restoreUploadJobs(library){
+ const roles=library.drafts||[];
+ for(const job of ownedUploadJobs())if(!job.active){for(const item of job.items)reconcileUploadItem(item,library);job.saved=job.items.every(i=>i.saved||i.cancelled);if(job.saved)job.status="处理完成"}
  for(const batch of new Set(roles.map(r=>r.uploadBatch).filter(Boolean))){
   const rows=roles.filter(r=>r.uploadBatch===batch),old=uploadJobs.get(batch);
   if(old?.active)continue;
   const items=rows.map(r=>({role:r,name:r.filename,file:null,status:r.analysisStatus==="done"?"分析完成":r.analysisStatus==="failed"?"分析失败":"等待分析",error:r.analysisError||""}));
-  if(old){for(const item of items){const known=old.items.find(i=>i.role?.identity===item.role.identity);if(known){known.role=item.role;if(item.status==="分析完成"){known.status=item.status;known.error=""}}else old.items.push(item)}if(!old.saved)old.status="等待保存"}else uploadJobs.set(batch,{id:batch,owner:state.user.id,createdAt:Date.parse(rows[0].createdAt),items,fields:{},tags:[],projects:[],auto:rows.some(r=>r.uploadAutoAnalyze||r.analysisStatus),choice:codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api",concurrency:3,status:"等待保存",active:false,stopRequested:false,cancelRequested:false});
+  if(old){for(const item of items){const known=old.items.find(i=>i.role?.identity===item.role.identity);if(known){Object.assign(known,item,{saved:false,cancelled:false})}else old.items.push(item)}if(!old.saved)old.status="等待保存"}else uploadJobs.set(batch,{id:batch,owner:state.user.id,createdAt:Date.parse(rows[0].createdAt),items,fields:{},tags:[],projects:[],auto:rows.some(r=>r.uploadAutoAnalyze||r.analysisStatus),choice:codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api",concurrency:3,status:"等待保存",active:false,stopRequested:false,cancelRequested:false});
  }
  if($("#modal").dataset.kind==="background-tasks")paintBackgroundTasks();
 }
@@ -347,8 +349,17 @@ function paintUploadTask(job){
  if($("#cancelUpload"))$("#cancelUpload").onclick=()=>cancelUploadTask(job);
  $("#startUpload").onclick=()=>job.saved?$("#modal").close():saveUploadTask(job);
 }
-async function syncUploadRoles(job,onlyItem=null){
- const library=await api("/api/library");for(const item of onlyItem?[onlyItem]:job.items){if(!item.role||item.cancelled)continue;const current=[...(library.drafts||[]),...(library.roles||[])].find(r=>r.identity===item.role.identity);if(current){item.role=current;if(current.analysisStatus==="done"){item.status="分析完成";item.error=""}else if(current.analysisStatus==="failed"){item.status="分析失败";item.error=current.analysisError||item.error}}}
+function reconcileUploadItem(item,library,allowBusy=false){
+ if(!item.role||(!allowBusy&&uploadItemBusy(item)))return;
+ const identity=item.role.identity,current=[...(library.drafts||[]),...(library.roles||[]),...(library.collections||[])].find(r=>r.identity===identity);
+ if(!current){item.cancelled=true;item.saved=false;item.file=null;item.status="已移除";item.error="";return}
+ item.role=current;item.saved=!current.uploadDraft;item.cancelled=false;
+ if(item.saved){item.file=null;item.status="已保存";item.error=""}
+ else{item.status=current.analysisStatus==="done"?"分析完成":current.analysisStatus==="failed"?"分析失败":current.analysisStatus==="analyzing"?"正在分析":"等待处理";item.error=current.analysisError||""}
+}
+async function syncUploadRoles(job,onlyItem=null,allowBusy=false){
+ const library=await api("/api/library");for(const item of onlyItem?[onlyItem]:job.items)reconcileUploadItem(item,library,allowBusy);
+ job.saved=job.items.every(i=>i.saved||i.cancelled);
 }
 async function runUploadTask(job,retry=false,onlyItem=null,forceAnalysis=false,options=null){
  const settings={fields:{...job.fields},projects:[...job.projects],tags:[...job.tags],auto:job.auto,choice:job.choice,concurrency:job.concurrency,directSave:job.directSave,directItem:job.directItem,...options};
@@ -363,7 +374,7 @@ async function runUploadTask(job,retry=false,onlyItem=null,forceAnalysis=false,o
  if(!job.active)job.stopRequested=false;job.activeRuns=(job.activeRuns||0)+1;updateUploadActivity(job);job.error="";job.status=retry?"正在重试":"正在准备";taskChanged(job);
  const allowed=()=>!job.cancelRequested&&job.owner===state.user?.id;
  try{
-  if(retry){await syncUploadRoles(job,onlyItem);if(forceAnalysis&&onlyItem)onlyItem.status="等待分析"}
+  if(retry){await syncUploadRoles(job,onlyItem,true);if(forceAnalysis&&onlyItem&&!onlyItem.saved&&!onlyItem.cancelled)onlyItem.status="等待分析"}
   let next=0;const uploads=scope.filter(i=>!i.role&&i.file);
   const uploadOne=async()=>{while(next<uploads.length&&allowed()){const item=uploads[next++];if(item.cancelRequested||item.cancelled||item.saved||item.runToken!==token)continue;while(item.editing&&allowed())await new Promise(r=>setTimeout(r,25));if(!allowed()||item.cancelRequested||item.cancelled||item.saved||item.runToken!==token)continue;item.busy=true;item.status="正在准备";item.error="";taskChanged(job);try{
    if(item.file.size>20*1048576)throw new Error("超过20MB");
@@ -410,8 +421,8 @@ async function saveUploadTask(job,onlyItem=null){
  for(const item of selected){item.saving=true;item.runToken=null}job.savingCount=(job.savingCount||0)+1;updateUploadActivity(job);job.status="正在保存";job.error="";taskChanged(job);
  try{
   const result=await post("/api/upload-batches",{batch:job.id,action:"save",identities:selected.map(i=>i.role.identity)});
-  for(const item of selected){const saved=(result.roles||[]).find(r=>r.identity===item.role.identity);if(saved)item.role=saved;item.saved=true;item.file=null}
-  job.saved=job.items.every(i=>i.saved||i.cancelled);job.status=job.saved?(result.backupQueued?"已保存，网盘备份在后台运行":"已保存"):"部分已保存，其他素材等待处理";job.error=result.backupError||"";await refresh(true);globalThis.resumeBaiduBackup?.();toast(result.backupQueued?"已保存，正在后台备份网盘":"素材已保存");
+  for(const item of selected){const saved=(result.roles||[]).find(r=>r.identity===item.role.identity);if(saved){item.role=saved;item.saved=true;item.file=null;item.error=""}else{item.status="保存失败";item.error="素材已被其他设备移除或更改，请刷新"}}
+  job.saved=job.items.every(i=>i.saved||i.cancelled);job.status=job.saved?(result.backupQueued?"已保存，网盘备份在后台运行":"已保存"):"部分已保存，其他素材等待处理";job.error=result.backupError||selected.find(i=>!i.saved)?.error||"";await refresh(true);globalThis.resumeBaiduBackup?.();const savedCount=selected.filter(i=>i.saved).length;toast(savedCount?"已保存 "+savedCount+" 项"+(job.error?"；"+job.error:result.backupQueued?"，正在后台备份网盘":""):job.error||"没有素材保存成功，请刷新");
  }catch(error){job.error=error.message;job.status="保存失败"}finally{for(const item of selected)item.saving=false;job.savingCount--;updateUploadActivity(job);job.directSave=false;if(job.active)job.status="模型分析";taskChanged(job)}
 }
 function paintBackgroundTasks(){

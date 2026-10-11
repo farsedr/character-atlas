@@ -71,15 +71,17 @@ async function draftMemberships(env,owner,names){
 async function uploadBatch(request,env,owner,ctx){
  const b=await request.json();if(typeof b.batch!=="string"||!/^[a-zA-Z0-9-]{8,100}$/.test(b.batch)||!["save","cancel"].includes(b.action))throw new HttpError(400,"上传批次无效");
  if(b.identities!==undefined&&(!Array.isArray(b.identities)||!b.identities.length||b.identities.length>1000||b.identities.some(id=>typeof id!=="string"||id.length>100)))throw new HttpError(400,"请选择有效的素材");
- const all=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=?",owner,b.batch).all()).results.filter(r=>!b.identities||b.identities.includes(r.id));
+ const all=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=?",owner,b.batch).all()).results.filter(r=>(b.action==="cancel"||!r.deleted_at)&&(!b.identities||b.identities.includes(r.id)));
  const drafts=all.filter(r=>JSON.parse(r.body).uploadDraft);
  if(drafts.some(r=>JSON.parse(r.body).analysisStatus==="analyzing"&&Date.now()-(JSON.parse(r.body).analysisStarted||0)<90000))throw new HttpError(409,"仍有分析请求正在执行，请稍后再"+(b.action==="save"?"保存":"取消"));
  if(b.action==="cancel"){
   let deleted=0;const errors=[];for(const row of drafts){try{for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1",row.id,owner).run();deleted++}catch{errors.push({identity:row.id,error:"临时文件清理失败，请重试取消"})}}
   return json({deleted,failed:errors.length,errors});
  }
- for(const row of drafts){const role=JSON.parse(row.body),main=await collectionMain(env,role,owner),groups=await memberships(env,owner,main?(main.projectNames||[main.projectName]):role.projectNames||[role.projectName||"未分组"]);if(main)role.name=main.name;await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",JSON.stringify({...role,...groups}),row.id,owner,row.revision).run()}
- const saved=drafts.length?(await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.uploadDraft',0),deleted_at=NULL,revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1 AND id IN ("+drafts.map(()=>"?").join(",")+") RETURNING *",owner,b.batch,...drafts.map(r=>r.id)).all()).results:[];
+ const saved=[];
+ for(const row of drafts){const role=JSON.parse(row.body),main=await collectionMain(env,role,owner),groups=await memberships(env,owner,main?(main.projectNames||[main.projectName]):role.projectNames||[role.projectName||"未分组"]);if(main)role.name=main.name;
+  const committed=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=1 RETURNING *",JSON.stringify({...role,...groups,uploadDraft:false}),row.id,owner,row.revision).first();if(committed)saved.push(committed);
+ }
  const committed=all.filter(r=>!JSON.parse(r.body).uploadDraft).concat(saved);let backupQueued=false,backupError="";
  for(const row of committed)await persistLabels(env,JSON.parse(row.body).tags||[],owner);
  try{const connection=await baiduConnection(env,owner);if(connection?.status==="connected"){for(const row of committed)await enqueueBaidu(env,owner,row.id);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError="素材已保存，网盘备份启动失败；请在云盘连接中重试备份"}
@@ -293,9 +295,8 @@ async function handleApi(request,env,url,ctx){
  if(url.pathname==="/api/analysis-skill")return skillApi(request,env,owner);
  if(url.pathname==="/api/library"&&request.method==="GET"){
   await ensureSystemCollections(env,owner);await releaseCollectionNumbers(env,owner);
-  await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND name NOT IN ("+SYSTEM_COLLECTIONS.map(()=>"?").join(",")+") AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name OR EXISTS (SELECT 1 FROM json_each(a.body,'$.projectNames') j WHERE j.value=atlas_projects.name)))",owner,...SYSTEM_COLLECTIONS).run();
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
-  const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,drafts:rows.results.filter(r=>JSON.parse(r.body).uploadDraft).map(bodyRole),roles:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&!JSON.parse(r.body).relatedAssetIdentity).map(bodyRole),collections:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&JSON.parse(r.body).relatedAssetIdentity).map(r=>{const role=bodyRole(r),main=rows.results.find(p=>p.id===role.relatedAssetIdentity);return {...role,...(main?{name:JSON.parse(main.body).name,projectNames:JSON.parse(main.body).projectNames||[JSON.parse(main.body).projectName],projectName:JSON.parse(main.body).projectName,projectId:JSON.parse(main.body).projectId,projectIds:JSON.parse(main.body).projectIds}:{})}}),recycle:rows.results.filter(r=>r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
+  const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,drafts:rows.results.filter(r=>!r.deleted_at&&JSON.parse(r.body).uploadDraft).map(bodyRole),roles:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&!JSON.parse(r.body).relatedAssetIdentity).map(bodyRole),collections:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&JSON.parse(r.body).relatedAssetIdentity).map(r=>{const role=bodyRole(r),main=rows.results.find(p=>p.id===role.relatedAssetIdentity);return {...role,...(main?{name:JSON.parse(main.body).name,projectNames:JSON.parse(main.body).projectNames||[JSON.parse(main.body).projectName],projectName:JSON.parse(main.body).projectName,projectId:JSON.parse(main.body).projectId,projectIds:JSON.parse(main.body).projectIds}:{})}}),recycle:rows.results.filter(r=>r.deleted_at).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);
  if(url.pathname==="/api/upload-batches"&&request.method==="POST")return uploadBatch(request,env,owner,ctx);
@@ -311,22 +312,40 @@ async function handleApi(request,env,url,ctx){
  if(url.pathname==="/api/assets/delete"&&request.method==="POST"){
   const b=await request.json();if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25个素材");
   for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除请求无效");
-  const result=await getDb(env).batch(b.items.map(i=>query(env,"UPDATE atlas_assets SET deleted_at=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL",new Date().toISOString(),i.identity,owner,i.revision)));
-  const changed=result.reduce((n,r)=>n+(r.meta?.changes||0),0);return json({ok:true,deleted:changed});
+  const deletedAt=new Date().toISOString(),statements=[];
+  for(const i of b.items){
+   statements.push(query(env,"UPDATE atlas_assets SET deleted_at=?,body=json_set(body,'$.deletedWithMain',?),revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=? AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM atlas_assets p WHERE p.id=? AND p.owner_id=? AND p.revision=? AND p.deleted_at IS NULL)",deletedAt,i.identity,owner,i.identity,i.identity,owner,i.revision));
+   statements.push(query(env,"UPDATE atlas_assets SET deleted_at=?,body=json_remove(body,'$.deletedWithMain'),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL",deletedAt,i.identity,owner,i.revision));
+  }
+  const result=await getDb(env).batch(statements);return json({ok:true,deleted:result.filter((_,i)=>i%2).reduce((n,r)=>n+(r.meta?.changes||0),0),collectionDeleted:result.filter((_,i)=>!(i%2)).reduce((n,r)=>n+(r.meta?.changes||0),0)});
  }
  if(url.pathname==="/api/assets/purge"&&request.method==="POST"){
  const b=await request.json();if(b.deleteBaiduBackup!==undefined&&typeof b.deleteBaiduBackup!=="boolean")throw new HttpError(400,"网盘删除选项无效");if(!Array.isArray(b.items)||!b.items.length||b.items.length>25)throw new HttpError(400,"一次请选择1至25份素材");for(const i of b.items)if(typeof i.identity!=="string"||!Number.isInteger(i.revision))throw new HttpError(400,"删除参数无效");let deleted=0,failed=0;const errors=[];
- for(const i of b.items){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)continue;let localStarted=false;try{
+ const removed=new Set();
+ async function purgeItem(i){const row=await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.purgePending',1),revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL RETURNING *",i.identity,owner,i.revision).first();if(!row)return false;let localStarted=false;try{
   if(b.deleteBaiduBackup)await deleteBaiduBackup(env,owner,row);
+  const children=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=?",owner,row.id).all()).results;
+  for(const child of children){if(!child.deleted_at){await query(env,"UPDATE atlas_assets SET deleted_at=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",new Date().toISOString(),child.id,owner,child.revision).run();child.revision++}if(!await purgeItem({identity:child.id,revision:child.revision}))throw new HttpError(409,"集合清理未完成，请重试")}
+  if((await query(env,"SELECT id FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=?",owner,row.id).first()))throw new HttpError(409,"集合已变化，请重试");
   localStarted=true;for(const key of new Set([row.original_key,row.preview_key]))await bucket(env).delete(key);
-  await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();deleted+=r.meta?.changes||0;
- }catch(e){failed++;const message=e instanceof HttpError?e.message:"删除失败，请重新选择重试";errors.push({identity:row.id,error:message});await query(env,"UPDATE atlas_assets SET body=json_set("+(localStarted?"body":"json_remove(body,'$.purgePending')")+",'$.purgeError',?),revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",message,row.id,owner,row.revision).run();await query(env,"UPDATE atlas_baidu_backups SET error=?,updated_at=? WHERE asset_id=? AND owner_id=?",message,new Date().toISOString(),row.id,owner).run()}}
- return json({deleted,failed,errors});
+  await query(env,"DELETE FROM atlas_baidu_backups WHERE asset_id=? AND owner_id=?",row.id,owner).run();const r=await query(env,"DELETE FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",row.id,owner,row.revision).run();if(r.meta?.changes)removed.add(row.id);return !!r.meta?.changes;
+ }catch(e){failed++;const message=e instanceof HttpError?e.message:"删除失败，请重新选择重试";errors.push({identity:row.id,error:message});await query(env,"UPDATE atlas_assets SET body=json_set("+(localStarted?"body":"json_remove(body,'$.purgePending')")+",'$.purgeError',?),revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",message,row.id,owner,row.revision).run();await query(env,"UPDATE atlas_baidu_backups SET error=?,updated_at=? WHERE asset_id=? AND owner_id=?",message,new Date().toISOString(),row.id,owner).run();return false}}
+ for(const i of b.items)await purgeItem(i);
+ deleted=b.items.filter(i=>removed.has(i.identity)).length;
+ return json({deleted,collectionDeleted:removed.size-deleted,failed,errors});
  }
  if(url.pathname==="/api/assets/restore"&&request.method==="POST"){
   const b=await request.json();if(typeof b.identity!=="string"||!Number.isInteger(b.revision))throw new HttpError(400,"恢复请求无效");
-  const r=await query(env,"UPDATE atlas_assets SET display_number=CASE WHEN COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' THEN NULL ELSE ("+gapSQL+") END,deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND (COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' OR ("+gapSQL+") IS NOT NULL) RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
-  if(!r)throw new HttpError(409,"素材已变化或编号用尽");return json({role:bodyRole(r)});
+  const restoring=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL",b.identity,owner,b.revision).first();
+  if(restoring)await collectionMain(env,JSON.parse(restoring.body),owner);
+  const linked=(await query(env,"SELECT id FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.deletedWithMain')=? AND COALESCE(json_extract(body,'$.purgePending'),0)<>0",owner,b.identity).all()).results;
+  if(linked.length)throw new HttpError(409,"集合正在清理，无法恢复");
+  const result=await getDb(env).batch([
+   query(env,"UPDATE atlas_assets SET deleted_at=NULL,body=json_remove(body,'$.deletedWithMain'),revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.deletedWithMain')=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND EXISTS(SELECT 1 FROM atlas_assets p WHERE p.id=? AND p.owner_id=? AND p.revision=? AND p.deleted_at IS NOT NULL AND COALESCE(json_extract(p.body,'$.purgePending'),0)=0 AND (COALESCE(json_extract(p.body,'$.relatedAssetIdentity'),'')<>'' OR ("+gapSQL+") IS NOT NULL))",owner,b.identity,b.identity,owner,b.revision,owner,owner),
+   query(env,"UPDATE atlas_assets SET display_number=CASE WHEN COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' THEN NULL ELSE ("+gapSQL+") END,deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND (COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' OR ("+gapSQL+") IS NOT NULL)",owner,owner,b.identity,owner,b.revision,owner,owner)
+  ]);
+  if(!result[1].meta?.changes)throw new HttpError(409,"素材已变化或编号用尽");
+  const r=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=?",b.identity,owner).first();return json({role:bodyRole(r)});
  }
  const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5}|collection)(?:\/(preview|download|analyze|analysis-result))?$/);
  if(match){
