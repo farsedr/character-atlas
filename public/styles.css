@@ -100,6 +100,7 @@ button:hover{border-color:#91afd4;background:#293448}
 .card-description{color:#b5c0d1}.card-meta{border-color:#39465b;gap:14px;font-size:13px;align-items:start}
 .card-meta span:first-child{min-width:0;overflow-wrap:anywhere}.card-meta span:last-child{flex-shrink:0;color:#b5c9e0}
 .card-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}
+.card-actions.recycle-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
 .card-actions a,.card-actions button{min-width:0;min-height:44px;padding:10px 6px;font-size:14px;border:1px solid #42516a;border-radius:9px;background:#222d3e}
 .card-actions .danger{color:#edb0b6}.card-actions .danger:hover{background:#422b38;border-color:#a56c78}
 .chip{color:#c8d9ef;background:#2a3547}.panel,.filters{background:#181f2b}
