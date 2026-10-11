@@ -35,7 +35,7 @@ function labelStatements(env,tags,owner){const statements=[];for(let i=0;i<tags.
 async function persistLabels(env,tags,owner){const statements=labelStatements(env,tags,owner);if(statements.length)await getDb(env).batch(statements)}
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
- const id=publicId(row.display_number);
+ const id=r.relatedAssetIdentity?"collection":publicId(row.display_number);
  return {id,identity:row.id,uploadDraft:!!r.uploadDraft,uploadBatch:r.uploadBatch||"",relatedAssetIdentity:r.relatedAssetIdentity||"",uploadAutoAnalyze:!!r.uploadAutoAnalyze,analysisError:r.analysisError||"",name:r.name,description:r.description||"",tags,classification:classify(tags),projectNames:r.projectNames||[r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组"],projectIds:r.projectIds||[r.projectId].filter(Boolean),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",groupingMode:r.groupingMode||((r.projectName&&r.projectName!=="未分组")?"manual":"ai"),namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
 }
 function classify(tags){return Object.fromEntries(dimensions().map(d=>[d,tags.find(t=>t.dimension===d)?.name||"未标注"]))}
@@ -86,6 +86,7 @@ async function uploadBatch(request,env,owner,ctx){
  return json({saved:committed.length,roles:committed.map(bodyRole),backupQueued,backupError});
 }
 async function upload(request,env,owner,ctx){
+ await releaseCollectionNumbers(env,owner);
  const form=await request.formData(),file=form.get("file"),preview=form.get("preview");
  const uploadBatch=String(form.get("uploadBatch")||"");if(uploadBatch&&!/^[a-zA-Z0-9-]{8,100}$/.test(uploadBatch))throw new HttpError(400,"上传批次无效");const uploadDraft=!!uploadBatch;
  const relatedAssetIdentity=String(form.get("relatedAssetIdentity")||"");if(relatedAssetIdentity){const related=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",relatedAssetIdentity,owner).first();if(!related)throw new HttpError(400,"关联素材不存在，请重新打开素材详情")}
@@ -105,12 +106,13 @@ async function upload(request,env,owner,ctx){
  const b=bucket(env);let row;
  try{
   await b.put(originalKey,bytes,{httpMetadata:{contentType:mime}});await b.put(previewKey,previewBytes,{httpMetadata:{contentType:"image/jpeg"}});
-  row=await query(env,"INSERT INTO atlas_assets (id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) SELECT ?,?,?,?,?,?,?,1,?,?,("+gapSQL+") WHERE ("+gapSQL+") IS NOT NULL RETURNING *",id,JSON.stringify(role),originalKey,previewKey,mime,filename,file.size,date,owner,owner,owner,owner,owner).first();
+  row=relatedAssetIdentity?await query(env,"INSERT INTO atlas_assets (id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) VALUES (?,?,?,?,?,?,?,1,?,?,NULL) RETURNING *",id,JSON.stringify(role),originalKey,previewKey,mime,filename,file.size,date,owner).first():await query(env,"INSERT INTO atlas_assets (id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) SELECT ?,?,?,?,?,?,?,1,?,?,("+gapSQL+") WHERE ("+gapSQL+") IS NOT NULL RETURNING *",id,JSON.stringify(role),originalKey,previewKey,mime,filename,file.size,date,owner,owner,owner,owner,owner).first();
   if(!row)throw new HttpError(409,"编号已达到99999，请先删除不需要的素材");
  }catch(e){await Promise.allSettled([b.delete(originalKey),b.delete(previewKey)]);throw e}
  try{const c=await baiduConnection(env,owner);if(!uploadDraft&&c?.auto_backup&&c.status==="connected"){await enqueueBaidu(env,owner,row.id);ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{/* Original upload succeeds even when backup is unavailable. */}
  return json({role:bodyRole(row)},201);
 }
+async function releaseCollectionNumbers(env,owner){await query(env,"UPDATE atlas_assets SET display_number=NULL WHERE owner_id=? AND display_number IS NOT NULL AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>''",owner).run()}
 async function collectionMain(env,saved,owner){
  if(!saved.relatedAssetIdentity)return null;
  const main=await query(env,"SELECT body FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",saved.relatedAssetIdentity,owner).first();
@@ -290,7 +292,7 @@ async function handleApi(request,env,url,ctx){
  await migrateLegacy(env);
  if(url.pathname==="/api/analysis-skill")return skillApi(request,env,owner);
  if(url.pathname==="/api/library"&&request.method==="GET"){
-  await ensureSystemCollections(env,owner);
+  await ensureSystemCollections(env,owner);await releaseCollectionNumbers(env,owner);
   await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND name NOT IN ("+SYSTEM_COLLECTIONS.map(()=>"?").join(",")+") AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name OR EXISTS (SELECT 1 FROM json_each(a.body,'$.projectNames') j WHERE j.value=atlas_projects.name)))",owner,...SYSTEM_COLLECTIONS).run();
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
   const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,drafts:rows.results.filter(r=>JSON.parse(r.body).uploadDraft).map(bodyRole),roles:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&!JSON.parse(r.body).relatedAssetIdentity).map(bodyRole),collections:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft&&JSON.parse(r.body).relatedAssetIdentity).map(r=>{const role=bodyRole(r),main=rows.results.find(p=>p.id===role.relatedAssetIdentity);return {...role,...(main?{name:JSON.parse(main.body).name,projectNames:JSON.parse(main.body).projectNames||[JSON.parse(main.body).projectName],projectName:JSON.parse(main.body).projectName,projectId:JSON.parse(main.body).projectId,projectIds:JSON.parse(main.body).projectIds}:{})}}),recycle:rows.results.filter(r=>r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
@@ -323,13 +325,13 @@ async function handleApi(request,env,url,ctx){
  }
  if(url.pathname==="/api/assets/restore"&&request.method==="POST"){
   const b=await request.json();if(typeof b.identity!=="string"||!Number.isInteger(b.revision))throw new HttpError(400,"恢复请求无效");
-  const r=await query(env,"UPDATE atlas_assets SET display_number=("+gapSQL+"),deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND ("+gapSQL+") IS NOT NULL RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
+  const r=await query(env,"UPDATE atlas_assets SET display_number=CASE WHEN COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' THEN NULL ELSE ("+gapSQL+") END,deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND (COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' OR ("+gapSQL+") IS NOT NULL) RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
   if(!r)throw new HttpError(409,"素材已变化或编号用尽");return json({role:bodyRole(r)});
  }
- const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5})(?:\/(preview|download|analyze|analysis-result))?$/);
+ const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5}|collection)(?:\/(preview|download|analyze|analysis-result))?$/);
  if(match){
   const identity=url.searchParams.get("v");if(!identity)throw new HttpError(400,"缺少素材标识，请刷新页面");
-  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND display_number=?",identity,owner,Number(match[1].slice(5))).first();
+  const row=match[1]==="collection"?await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>''",identity,owner).first():await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND display_number=?",identity,owner,Number(match[1].slice(5))).first();
   if(!row)throw new HttpError(404,"素材不存在");
   if(row.deleted_at&& !["preview","download"].includes(match[2]))throw new HttpError(409,"素材已删除");
   if(match[2]==="analysis-result"&&request.method==="POST"){
