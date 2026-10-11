@@ -36,7 +36,7 @@ async function persistLabels(env,tags,owner){const statements=labelStatements(en
 function bodyRole(row){
  const r=JSON.parse(row.body),tags=(r.tags||[]).filter(t=>dimensions().includes(t.dimension));
  const id=publicId(row.display_number);
- return {id,identity:row.id,uploadDraft:!!r.uploadDraft,uploadBatch:r.uploadBatch||"",uploadAutoAnalyze:!!r.uploadAutoAnalyze,analysisError:r.analysisError||"",name:r.name,description:r.description||"",tags,classification:classify(tags),projectNames:r.projectNames||[r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组"],projectIds:r.projectIds||[r.projectId].filter(Boolean),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",groupingMode:r.groupingMode||((r.projectName&&r.projectName!=="未分组")?"manual":"ai"),namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
+ return {id,identity:row.id,uploadDraft:!!r.uploadDraft,uploadBatch:r.uploadBatch||"",relatedAssetIdentity:r.relatedAssetIdentity||"",uploadAutoAnalyze:!!r.uploadAutoAnalyze,analysisError:r.analysisError||"",name:r.name,description:r.description||"",tags,classification:classify(tags),projectNames:r.projectNames||[r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组"],projectIds:r.projectIds||[r.projectId].filter(Boolean),projectId:r.projectId||"",projectName:r.projectName||({"PRJ-001":"森林伙伴计划","PRJ-002":"东方与自然叙事","PRJ-003":"未来航行档案"}[r.projectId])||"未分组",generationPrompt:r.generationPrompt||"",groupingMode:r.groupingMode||((r.projectName&&r.projectName!=="未分组")?"manual":"ai"),namingMode:r.namingMode||"original",width:r.width||0,height:r.height||0,analysisStatus:r.analysisStatus||"",analysisResult:r.analysisResult,revision:row.revision,createdAt:row.created_at,deletedAt:row.deleted_at,purgePending:!!r.purgePending,imageUrl:"/api/assets/"+id+"/preview?v="+row.id,downloadUrl:"/api/assets/"+id+"/download?v="+row.id,filename:row.filename,size:row.size};
 }
 function classify(tags){return Object.fromEntries(dimensions().map(d=>[d,tags.find(t=>t.dimension===d)?.name||"未标注"]))}
 function signature(bytes){if(bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71&&bytes[4]===13&&bytes[5]===10&&bytes[6]===26&&bytes[7]===10)return "image/png";if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return "image/jpeg";if(String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP")return "image/webp";return ""}
@@ -88,6 +88,7 @@ async function uploadBatch(request,env,owner,ctx){
 async function upload(request,env,owner,ctx){
  const form=await request.formData(),file=form.get("file"),preview=form.get("preview");
  const uploadBatch=String(form.get("uploadBatch")||"");if(uploadBatch&&!/^[a-zA-Z0-9-]{8,100}$/.test(uploadBatch))throw new HttpError(400,"上传批次无效");const uploadDraft=!!uploadBatch;
+ const relatedAssetIdentity=String(form.get("relatedAssetIdentity")||"");if(relatedAssetIdentity){const related=await query(env,"SELECT id FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",relatedAssetIdentity,owner).first();if(!related)throw new HttpError(400,"关联素材不存在，请重新打开素材详情")}
  if(!(file instanceof File)||!file.size||file.size>MAX_FILE)throw new HttpError(400,"请选择20MB以内PNG、JPEG、WebP");
  const bytes=await file.arrayBuffer(),b8=new Uint8Array(bytes),mime=signature(b8);if(!mime)throw new HttpError(400,"图片格式无效");
  const dims=imageDimensions(b8,mime);
@@ -99,7 +100,7 @@ async function upload(request,env,owner,ctx){
  const requestedGrouping=form.get("groupingMode"),requestedProject=String(form.get("projectName")||"未分组");const groupingMode=requestedGrouping==="manual"||(!requestedGrouping&&requestedProject!=="未分组")?"manual":"ai";const p=uploadDraft?{name:groupingMode==="ai"?"未分组":clean(requestedProject)}:await project(env,owner,groupingMode==="ai"?"未分组":String(form.get("projectName")||"未分组"));
  let names;try{names=JSON.parse(String(form.get("projectNames")||"null"))}catch{throw new HttpError(400,"灵感集格式无效")}const groups=await (uploadDraft?draftMemberships:memberships)(env,owner,groupingMode==="manual"?(names||[p.name]):[p.name]);
  const id=crypto.randomUUID(),originalKey="originals/"+id,previewKey="previews/"+id,date=new Date().toISOString();
- if(!uploadDraft)await persistLabels(env,tags,owner);const role={...(uploadDraft?{uploadDraft,uploadBatch,uploadAutoAnalyze:form.get("uploadAutoAnalyze")==="1"}:{}),name,description:String(form.get("description")||"").slice(0,1200),tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
+ if(!uploadDraft)await persistLabels(env,tags,owner);const role={...(relatedAssetIdentity?{relatedAssetIdentity}:{}),...(uploadDraft?{uploadDraft,uploadBatch,uploadAutoAnalyze:form.get("uploadAutoAnalyze")==="1"}:{}),name,description:String(form.get("description")||"").slice(0,1200),tags,...groups,generationPrompt:String(form.get("generationPrompt")||"").slice(0,12000),groupingMode,namingMode:mode,...dims};
  const b=bucket(env);let row;
  try{
   await b.put(originalKey,bytes,{httpMetadata:{contentType:mime}});await b.put(previewKey,previewBytes,{httpMetadata:{contentType:"image/jpeg"}});
@@ -281,7 +282,7 @@ async function handleApi(request,env,url,ctx){
  if(url.pathname==="/api/analysis-skill")return skillApi(request,env,owner);
  if(url.pathname==="/api/library"&&request.method==="GET"){
   await ensureSystemCollections(env,owner);
-  await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND parent_id IS NULL AND NOT EXISTS (SELECT 1 FROM atlas_projects child WHERE child.parent_id=atlas_projects.id AND child.owner_id=atlas_projects.owner_id) AND name NOT IN ("+SYSTEM_COLLECTIONS.map(()=>"?").join(",")+") AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name OR EXISTS (SELECT 1 FROM json_each(a.body,'$.projectNames') j WHERE j.value=atlas_projects.name)))",owner,...SYSTEM_COLLECTIONS).run();
+  await query(env,"DELETE FROM atlas_projects WHERE owner_id=? AND name NOT IN ("+SYSTEM_COLLECTIONS.map(()=>"?").join(",")+") AND NOT EXISTS (SELECT 1 FROM atlas_assets a WHERE a.owner_id=atlas_projects.owner_id AND a.deleted_at IS NULL AND (json_extract(a.body,'$.projectId')=atlas_projects.id OR json_extract(a.body,'$.projectName')=atlas_projects.name OR EXISTS (SELECT 1 FROM json_each(a.body,'$.projectNames') j WHERE j.value=atlas_projects.name)))",owner,...SYSTEM_COLLECTIONS).run();
   const rows=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? ORDER BY created_at DESC",owner).all(),tags=await registry(env,owner),ps=await query(env,"SELECT * FROM atlas_projects WHERE owner_id=? ORDER BY created_at",owner).all(),cfg=await modelConfig(env,owner);
   const pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) AS n").first();return json({migrationPending:!!pending.n,drafts:rows.results.filter(r=>JSON.parse(r.body).uploadDraft).map(bodyRole),roles:rows.results.filter(r=>!r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),recycle:rows.results.filter(r=>r.deleted_at&&!JSON.parse(r.body).uploadDraft).map(bodyRole),labels:tags,projects:ps.results.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg)});
  }
@@ -290,19 +291,6 @@ async function handleApi(request,env,url,ctx){
  if(url.pathname==="/api/assets"&&request.method==="POST")return upload(request,env,owner,ctx);
  if(url.pathname==="/api/projects"&&request.method==="POST"){
   const b=await request.json();
-  if(b.parentId!==undefined){
-   if(typeof b.parentId!=="string")throw new HttpError(400,"父项目无效");
-   const parent=await query(env,"SELECT * FROM atlas_projects WHERE id=? AND owner_id=?",b.parentId,owner).first();
-   if(!parent||parent.parent_id)throw new HttpError(400,"请选择自己的父项目");
-   const name=clean(b.name),key=owner+"|"+normalize(name);
-   // shortcut: collection names remain unique per account; use ID-based memberships before allowing duplicate child names.
-   const existing=await query(env,"SELECT * FROM atlas_projects WHERE name_key=?",key).first();
-   if(existing){if(existing.parent_id!==parent.id)throw new HttpError(409,"名称已被其他项目使用，请换一个子项目名称");return json({project:existing})}
-   await query(env,"INSERT OR IGNORE INTO atlas_projects (id,owner_id,name,name_key,parent_id,created_at) VALUES (?,?,?,?,?,?)",crypto.randomUUID(),owner,name,key,parent.id,new Date().toISOString()).run();
-   const child=await query(env,"SELECT * FROM atlas_projects WHERE name_key=?",key).first();
-   if(child.parent_id!==parent.id)throw new HttpError(409,"名称已被其他项目使用");
-   return json({project:child},201);
-  }
   return json({project:await project(env,owner,b.name)},201);
  }
  if(url.pathname==="/api/tags"&&request.method==="POST"){
@@ -329,7 +317,7 @@ async function handleApi(request,env,url,ctx){
   const r=await query(env,"UPDATE atlas_assets SET display_number=("+gapSQL+"),deleted_at=NULL,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.purgePending'),0)=0 AND ("+gapSQL+") IS NOT NULL RETURNING *",owner,owner,b.identity,owner,b.revision,owner,owner).first();
   if(!r)throw new HttpError(409,"素材已变化或编号用尽");return json({role:bodyRole(r)});
  }
- const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5})(?:\/(preview|download|analyze|analysis-result|child-project))?$/);
+ const match=url.pathname.match(/^\/api\/assets\/(CHAR-\d{5})(?:\/(preview|download|analyze|analysis-result))?$/);
  if(match){
   const identity=url.searchParams.get("v");if(!identity)throw new HttpError(400,"缺少素材标识，请刷新页面");
   const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND display_number=?",identity,owner,Number(match[1].slice(5))).first();
@@ -339,18 +327,6 @@ async function handleApi(request,env,url,ctx){
    const b=await request.json();if(b.identity!==row.id||!Number.isInteger(b.revision)||b.revision!==row.revision)throw new HttpError(409,"素材已变化，请重新分析");
    const model=b.model||"gpt-6-luna",reasoning=b.reasoning||"low";if(typeof model!=="string"||!/^(gpt|gemini)-[a-z0-9.-]{1,100}$/.test(model)||!["low","medium","high","xhigh","max","default"].includes(reasoning))throw new HttpError(400,"模型选项无效");
    return saveAnalysis(env,row,owner,b.result,{model,reasoning,provider:model.startsWith("gemini-")?"gemini-local":"codex-local"});
-  }
-  if(match[2]==="child-project"&&request.method==="POST"){
-   const b=await request.json();if(b.identity!==row.id||b.revision!==row.revision)throw new HttpError(409,"素材已变化，请关闭查看窗口后重新打开");
-   if(typeof b.childId!=="string"||typeof b.parentId!=="string")throw new HttpError(400,"请选择子项目");
-   const child=await query(env,"SELECT * FROM atlas_projects WHERE id=? AND owner_id=? AND parent_id=?",b.childId,owner,b.parentId).first();
-   const parent=await query(env,"SELECT * FROM atlas_projects WHERE id=? AND owner_id=?",b.parentId,owner).first();
-   if(!child||!parent||parent.parent_id)throw new HttpError(400,"子项目不属于所选父项目");
-   const body=JSON.parse(row.body),names=[...new Set([...(body.projectNames||[body.projectName||"未分组"]),parent.name,child.name])];
-   const groups=await memberships(env,owner,names);
-   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify({...body,...groups,groupingMode:"manual"}),row.id,owner,row.revision).first();
-   if(!updated)throw new HttpError(409,"素材已变化，请关闭查看窗口后重新打开");
-   return json({role:bodyRole(updated)});
   }
   if(match[2]==="analyze"&&request.method==="POST")return analyze(env,row,owner);
   if(!match[2]&&request.method==="PATCH")return saveRole(env,row,await request.json(),owner);

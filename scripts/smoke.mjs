@@ -149,20 +149,12 @@ let singleCommit=await post("/api/upload-batches",{batch:"single-action-batch",a
 let singleLibrary=await (await call("/api/library",{},ownerCookie)).json();assert(singleLibrary.roles.some(r=>r.identity===firstSingle.identity));assert(singleLibrary.drafts.some(r=>r.identity===secondSingle.identity));assert.equal((await post("/api/upload-batches",{batch:"single-action-batch",action:"cancel",identities:[secondSingle.identity]},ownerCookie)).status,409);
 sql.prepare("UPDATE atlas_assets SET body=json_set(body,'$.analysisStatus','failed') WHERE id=?").run(secondSingle.identity);
 assert.equal((await post("/api/upload-batches",{batch:"single-action-batch",action:"cancel",identities:[secondSingle.identity]},ownerCookie)).status,200);singleLibrary=await (await call("/api/library",{},ownerCookie)).json();assert(singleLibrary.roles.some(r=>r.identity===firstSingle.identity));assert(!singleLibrary.drafts.some(r=>r.identity===secondSingle.identity));assert(!singleLibrary.recycle.some(r=>r.identity===secondSingle.identity));
-const childParent=(await (await post("/api/projects",{name:"child-test-parent"},ownerCookie)).json()).project;
-const childProject=(await (await post("/api/projects",{name:"child-test-group",parentId:childParent.id},ownerCookie)).json()).project;assert.equal(childProject.parent_id,childParent.id);
-assert.equal((await post("/api/projects",{name:"child-test-group",parentId:childParent.id},ownerCookie)).status,200);
-assert.equal((await post("/api/projects",{name:"foreign-child",parentId:childParent.id},bobCookie)).status,400);
-assert.equal((await post("/api/projects",{name:"nested-child",parentId:childProject.id},ownerCookie)).status,400);
-assert.equal((await post("/api/projects",{name:childParent.name,parentId:childParent.id},ownerCookie)).status,409);
-const childLibrary=await (await call("/api/library",{},ownerCookie)).json();assert(childLibrary.projects.some(p=>p.id===childProject.id));assert(childLibrary.projects.some(p=>p.id===childParent.id));
-let childAsset=childLibrary.roles.find(r=>r.identity===firstSingle.identity);const childOriginal={...childAsset},childRequest={identity:childAsset.identity,revision:childAsset.revision,parentId:childParent.id,childId:childProject.id};
-assert.equal((await post(path(childAsset,"child-project"),childRequest,bobCookie)).status,404);
-assert.equal((await post(path(childAsset,"child-project"),{...childRequest,parentId:"wrong-parent"},ownerCookie)).status,400);
-r=await post(path(childAsset,"child-project"),childRequest,ownerCookie);assert.equal(r.status,200);childAsset=(await r.json()).role;
-assert(childOriginal.projectNames.every(n=>childAsset.projectNames.includes(n)));assert(childAsset.projectNames.includes(childParent.name));assert(childAsset.projectNames.includes(childProject.name));assert.equal(childAsset.generationPrompt,childOriginal.generationPrompt);assert.deepEqual(childAsset.tags,childOriginal.tags);
-assert.equal((await post(path(childAsset,"child-project"),childRequest,ownerCookie)).status,409);
-r=await post(path(childAsset,"child-project"),{...childRequest,revision:childAsset.revision},ownerCookie);assert.equal(r.status,200);assert.deepEqual((await r.json()).role.projectNames,childAsset.projectNames);
+async function uploadRelated(cookie,identity,batch="related-test-batch"){const f=new FormData();f.append("file",new File([png],"related.png",{type:"image/png"}));f.append("preview",new File([jpg],"preview.jpg",{type:"image/jpeg"}));f.append("uploadBatch",batch);f.append("relatedAssetIdentity",identity);return call("/api/assets",{method:"POST",body:f},cookie)}
+assert.equal((await uploadRelated(bobCookie,firstSingle.identity)).status,400);assert.equal((await uploadRelated(ownerCookie,"missing-parent")).status,400);
+r=await uploadRelated(ownerCookie,firstSingle.identity);assert.equal(r.status,201);const relatedDraft=(await r.json()).role;assert.equal(relatedDraft.relatedAssetIdentity,firstSingle.identity);
+r=await post("/api/upload-batches",{batch:"related-test-batch",action:"save",identities:[relatedDraft.identity]},ownerCookie);assert.equal(r.status,200);
+const relatedLibrary=await (await call("/api/library",{},ownerCookie)).json();const relatedSaved=relatedLibrary.roles.find(r=>r.identity===relatedDraft.identity);assert.equal(relatedSaved.relatedAssetIdentity,firstSingle.identity);assert(relatedLibrary.roles.some(r=>r.identity===firstSingle.identity));assert(!(await (await call("/api/library",{},bobCookie)).json()).roles.some(r=>r.identity===relatedDraft.identity));
+const relatedEdit=await call(path(relatedSaved),{method:"PATCH",body:JSON.stringify({...relatedSaved,name:"edited-related",identity:relatedSaved.identity,revision:relatedSaved.revision})},ownerCookie);assert.equal(relatedEdit.status,200);assert.equal((await relatedEdit.json()).role.relatedAssetIdentity,firstSingle.identity);
 globalThis.fetch=realFetch;
 let sessions=(await (await call("/api/auth/sessions",{},ownerCookie)).json()).sessions;assert.equal(sessions.length,2);
 await call("/api/auth/sessions",{method:"DELETE",body:JSON.stringify({hash:"all"})},ownerCookie);assert.equal((await call("/api/library",{},deviceCookie)).status,401);
