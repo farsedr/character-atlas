@@ -12,12 +12,24 @@ async function downloadCollection(assets){
   const url=URL.createObjectURL(await result.blob()),link=document.createElement("a");link.href=url;link.download="集合"+(assets.length>50?"-"+(start/50+1):"")+".zip";document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
  }
 }
+async function switchCollectionMain(main,chosen,deletePrevious,uploadContext){
+ const button=$("#confirmMainSwitch")||$("#modal [data-promote-related='"+chosen.identity+"']");if(button)button.disabled=true;
+ try{const result=await post("/api/assets/promote",{mainIdentity:main.identity,mainRevision:main.revision,identity:chosen.identity,revision:chosen.revision,deletePrevious});await refresh(true);state.detailRelatives=result.relatives;renderDetails(result.role,uploadContext);toast(deletePrevious?"已删除原主图，替换图片沿用原编号":"已切换主素材，编号保持一致");return result}catch(e){($("#mainSwitchError")||$("#detailError")).textContent=e.message;if(button)button.disabled=false;return null}
+}
+function deleteCollectionMain(main,members,uploadContext,selected=[main]){
+ const chosenIds=new Set(selected.map(r=>r.identity)),remaining=members.filter(r=>r.identity!==main.identity&&!chosenIds.has(r.identity)),candidates=remaining.filter(r=>!r.uploadDraft);
+ if(!remaining.length){deleteDialog(selected,()=>$("#modal").close());return}
+ modal("删除主素材",'<p>选择集合中的图片接替主素材，沿用 '+esc(main.id)+' 编号。仅删除选中的 '+selected.length+' 张图片。</p><label>接替主素材<select id="replacementMain">'+candidates.map(r=>'<option value="'+esc(r.identity)+'">'+esc(r.name)+' · '+esc(resolution(r))+'</option>').join("")+'</select></label>'+(!candidates.length?'<p class="error">集合中其余图片尚未保存，请先保存后再选择主素材。</p>':'')+'<p id="mainSwitchError" class="error"></p><div class="dialog-actions"><button id="cancelDelete">取消</button><button id="confirmMainSwitch" class="danger" '+(!candidates.length?'disabled':'')+'>确认删除并替换</button></div>');
+ $("#cancelDelete").onclick=()=>details(main,uploadContext);
+ $("#confirmMainSwitch").onclick=async()=>{const chosen=candidates.find(r=>r.identity===$("#replacementMain").value),result=await switchCollectionMain(main,chosen,true,uploadContext);if(!result)return;const others=selected.filter(r=>r.identity!==main.identity);if(others.length){try{for(let i=0;i<others.length;i+=25)await post("/api/assets/delete",{collectionOnly:true,items:others.slice(i,i+25).map(r=>({identity:r.identity,revision:r.revision+1}))});await refresh(true);details(result.role,uploadContext)}catch(e){$("#detailError").textContent="主图已替换；其他选中图片删除失败："+e.message}}};
+}
 function wireCollectionTools(main,related,uploadContext){
- const members=related.filter(r=>r.relatedAssetIdentity),root=$("#modal .related-assets");
+ main=related.find(r=>!r.relatedAssetIdentity&&!r.uploadDraft)||main;
+ const members=related,root=$("#modal .related-assets");
  root.querySelector("h3").textContent="集合 · "+members.length+" 张";
  root.querySelector(".related-assets-grid").insertAdjacentHTML("beforebegin",'<div class="collection-toolbar"><label class="check"><input type="checkbox" id="selectCollectionAll">全选</label><span id="collectionSelectedCount">已选 0 张</span><button id="saveCollectionSelected" disabled>保存选中</button><button id="downloadCollectionSelected" disabled>下载选中</button><button id="deleteCollectionSelected" class="danger" disabled>删除选中</button><button id="retryCollectionFailed">仅重试失败项</button></div><p class="error" id="collectionError"></p>');
  const selected=new Set();
- root.querySelectorAll(".related-asset-card").forEach(card=>{const identity=card.querySelector("[data-related-asset]").dataset.relatedAsset;if(!members.some(r=>r.identity===identity))return;card.insertAdjacentHTML("afterbegin",'<label class="check"><input type="checkbox" data-collection-select="'+esc(identity)+'" aria-label="选择集合图片"></label>')});
+ root.querySelectorAll(".related-asset-card").forEach(card=>{const identity=card.querySelector("[data-related-asset]").dataset.relatedAsset;if(!members.some(r=>r.identity===identity))return;card.querySelector(".collection-image").insertAdjacentHTML("afterbegin",'<label class="check collection-select"><input type="checkbox" data-collection-select="'+esc(identity)+'" aria-label="选择集合图片"></label>')});
  const selection=()=>members.filter(r=>selected.has(r.identity));
  function update(){const chosen=selection();$("#collectionSelectedCount").textContent="已选 "+chosen.length+" 张";$("#saveCollectionSelected").disabled=!chosen.some(r=>r.uploadDraft);$("#downloadCollectionSelected").disabled=!chosen.length;$("#deleteCollectionSelected").disabled=!chosen.length;$("#selectCollectionAll").checked=!!members.length&&chosen.length===members.length;$("#selectCollectionAll").indeterminate=chosen.length>0&&chosen.length<members.length}
  root.querySelectorAll("[data-collection-select]").forEach(input=>input.onchange=()=>{input.checked?selected.add(input.dataset.collectionSelect):selected.delete(input.dataset.collectionSelect);update()});
@@ -25,7 +37,7 @@ function wireCollectionTools(main,related,uploadContext){
  async function act(button,operation){button.disabled=true;let failure;try{await operation()}catch(error){failure=error}try{await refresh(true);if(state.serverPagination)renderDetails(await loadDetail(main),uploadContext);else details(main,uploadContext);if(failure)$("#collectionError").textContent=failure.message}catch(error){toast(error.message);button.disabled=false}}
  $("#saveCollectionSelected").onclick=e=>act(e.target,async()=>{const jobs=new Map();for(const r of selection().filter(r=>r.uploadDraft)){const job=ownedUploadJobs().find(j=>j.items.some(i=>i.role?.identity===r.identity));if(!job)throw new Error("请刷新素材状态后再保存");if(!jobs.has(job))jobs.set(job,[]);jobs.get(job).push(job.items.find(i=>i.role?.identity===r.identity))}for(const [job,items] of jobs){await saveUploadTask(job,items);if(items.some(i=>!i.saved))throw new Error(job.error||"部分素材未保存，请重试")}});
  $("#downloadCollectionSelected").onclick=e=>act(e.target,()=>downloadCollection(selection()));
- $("#deleteCollectionSelected").onclick=()=>deleteDialog(selection(),()=>details(main,uploadContext));
+ $("#deleteCollectionSelected").onclick=()=>{const selected=selection();if(selected.some(r=>r.identity===main.identity))deleteCollectionMain(main,members,uploadContext,selected);else deleteDialog(selected,()=>details(main,uploadContext),true)};
  const failures=members.filter(r=>r.analysisStatus==="failed");$("#retryCollectionFailed").disabled=!failures.length||!canAnalyze();
  $("#retryCollectionFailed").onclick=e=>act(e.target,async()=>{let failed=0;for(const r of failures){try{const job=ownedUploadJobs().find(j=>j.items.some(i=>i.role?.identity===r.identity));if(r.uploadDraft&&job){const item=job.items.find(i=>i.role?.identity===r.identity);await runUploadTask(job,true,item);if(item.error)failed++}else await analyzeAsset(r,$("#detailAnalysisModel")?.value)}catch{failed++}}if(failed)throw new Error(failed+" 张仍分析失败，可再次重试")});
  update();

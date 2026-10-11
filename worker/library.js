@@ -1,3 +1,20 @@
+async function promoteCollectionMain(request,env,owner){
+ const b=await request.json();if(typeof b.mainIdentity!=="string"||typeof b.identity!=="string"||!Number.isInteger(b.mainRevision)||!Number.isInteger(b.revision)||typeof b.deletePrevious!=="boolean")throw new HttpError(400,"主素材切换参数无效");
+ const main=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",b.mainIdentity,owner).first(),next=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND deleted_at IS NULL",b.identity,owner).first();
+ if(!main||!next)throw new HttpError(404,"素材不存在");const previous=JSON.parse(main.body),chosen=JSON.parse(next.body);
+ if(main.revision!==b.mainRevision||next.revision!==b.revision)throw new HttpError(409,"素材已变化，请刷新后重试");
+ if(previous.relatedAssetIdentity||previous.uploadDraft||!main.display_number||chosen.relatedAssetIdentity!==main.id||chosen.uploadDraft||chosen.cancelPending)throw new HttpError(400,"请选择此集合中已保存的图片作为主素材");
+ const newBody={...chosen,name:previous.name,projectName:previous.projectName,projectId:previous.projectId,projectNames:previous.projectNames,projectIds:previous.projectIds};delete newBody.relatedAssetIdentity;delete newBody.deletedWithMain;
+ const oldBody={...previous,relatedAssetIdentity:next.id};delete oldBody.deletedWithMain;
+ const guard="SELECT CASE WHEN EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL AND display_number=? AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')='') AND EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL AND json_extract(body,'$.relatedAssetIdentity')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0) THEN 1 ELSE json('invalid') END";
+ try{await getDb(env).batch([
+  query(env,guard,main.id,owner,main.revision,main.display_number,next.id,owner,next.revision,main.id),
+  query(env,"UPDATE atlas_assets SET body=?,display_number=NULL,deleted_at=?,revision=revision+1 WHERE id=? AND owner_id=?",JSON.stringify(oldBody),b.deletePrevious?new Date().toISOString():null,main.id,owner),
+  query(env,"UPDATE atlas_assets SET body=json_set(body,'$.relatedAssetIdentity',?),revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=? AND id<>?",next.id,owner,main.id,next.id),
+  query(env,"UPDATE atlas_assets SET body=?,display_number=?,revision=revision+1 WHERE id=? AND owner_id=?",JSON.stringify(newBody),main.display_number,next.id,owner)
+ ])}catch{throw new HttpError(409,"集合已变化，请刷新后重试")}
+ return assetDetail(env,owner,next.id);
+}
 function briefRole(row){const role=bodyRole(row);delete role.analysisResult;delete role.generationPrompt;return role}
 async function pagedLibrary(env,owner,url){
  const size=Number(url.searchParams.get("size")||100),requested=Number(url.searchParams.get("page")||1),view=url.searchParams.get("view")||"all";

@@ -221,6 +221,21 @@ assert.equal((await post("/api/projects/manage",{identity:managedSource.id,actio
 const managedDetail=await (await call("/api/assets/detail?identity="+managedRole.identity,{},ownerCookie)).json();assert(managedDetail.relatives.some(r=>r.identity===managedChild.identity));assert(managedDetail.relatives.every(r=>r.identity===managedRole.identity||r.relatedAssetIdentity===managedRole.identity));
 const emptyToDelete=(await (await post("/api/projects",{name:"可删除空集"},ownerCookie)).json()).project;assert.equal((await post("/api/projects/manage",{identity:emptyToDelete.id,action:"delete"},ownerCookie)).status,200);assert(!sql.prepare("SELECT id FROM atlas_projects WHERE id=?").get(emptyToDelete.id));assert.equal((await post("/api/projects/manage",{identity:systems[0].id,action:"delete"},ownerCookie)).status,400);
 console.log("PASS: bounded pagination, lazy owned details, task settings, save/cancel interleavings, failed cleanup retry, renamed and simultaneous image duplicate detection, explicit override, project rename/merge/delete and owner isolation.");
+// Promote a collection image atomically, retain its number, and never cascade a single-image delete.
+{
+const promotionRoot=(await (await upload(ownerCookie)).json()).role;
+let promotionA=(await (await uploadRelated(ownerCookie,promotionRoot.identity,"promote-a")).json()).role,promotionB=(await (await uploadRelated(ownerCookie,promotionRoot.identity,"promote-b")).json()).role;
+await post("/api/upload-batches",{batch:"promote-a",action:"save"},ownerCookie);await post("/api/upload-batches",{batch:"promote-b",action:"save"},ownerCookie);
+let promotionDetail=await (await call("/api/assets/detail?identity="+promotionRoot.identity,{},ownerCookie)).json();promotionA=promotionDetail.relatives.find(a=>a.identity===promotionA.identity);promotionB=promotionDetail.relatives.find(a=>a.identity===promotionB.identity);
+const promoteRequest={mainIdentity:promotionRoot.identity,mainRevision:promotionDetail.role.revision,identity:promotionA.identity,revision:promotionA.revision,deletePrevious:false};
+assert.equal((await post("/api/assets/promote",promoteRequest,bobCookie)).status,404);
+const promotedResponse=await post("/api/assets/promote",promoteRequest,ownerCookie);assert.equal(promotedResponse.status,200);promotionDetail=await promotedResponse.json();assert.equal(promotionDetail.role.id,promotionRoot.id);assert.equal(promotionDetail.role.identity,promotionA.identity);assert(!promotionDetail.role.relatedAssetIdentity);assert(promotionDetail.relatives.some(a=>a.identity===promotionRoot.identity&&a.relatedAssetIdentity===promotionA.identity));assert.equal((await post("/api/assets/promote",promoteRequest,ownerCookie)).status,409);
+assert.equal((await post("/api/assets/delete",{collectionOnly:true,items:[{identity:promotionA.identity,revision:promotionDetail.role.revision}]},ownerCookie)).status,409);
+promotionB=promotionDetail.relatives.find(a=>a.identity===promotionB.identity);assert.equal((await post("/api/assets/delete",{collectionOnly:true,items:[{identity:promotionB.identity,revision:promotionB.revision}]},ownerCookie)).status,200);
+promotionDetail=await (await call("/api/assets/detail?identity="+promotionA.identity,{},ownerCookie)).json();assert.equal(promotionDetail.relatives.length,2);assert(!promotionDetail.role.deletedAt);
+const oldMain=promotionDetail.relatives.find(a=>a.identity===promotionRoot.identity);
+const replacement=await post("/api/assets/promote",{mainIdentity:promotionA.identity,mainRevision:promotionDetail.role.revision,identity:oldMain.identity,revision:oldMain.revision,deletePrevious:true},ownerCookie);assert.equal(replacement.status,200);const replaced=await replacement.json();assert.equal(replaced.role.id,promotionRoot.id);assert.equal(replaced.relatives.length,1);assert.equal(replaced.role.identity,promotionRoot.identity);assert(sql.prepare("SELECT deleted_at FROM atlas_assets WHERE id=?").get(promotionA.identity).deleted_at);assert.equal((await call(replaced.role.downloadUrl,{},ownerCookie)).status,200);
+}
 globalThis.fetch=realFetch;
 let sessions=(await (await call("/api/auth/sessions",{},ownerCookie)).json()).sessions;assert.equal(sessions.length,2);
 await call("/api/auth/sessions",{method:"DELETE",body:JSON.stringify({hash:"all"})},ownerCookie);assert.equal((await call("/api/library",{},deviceCookie)).status,401);
