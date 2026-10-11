@@ -75,6 +75,22 @@ Object.defineProperty(d.querySelector("#fileInput"),"files",{configurable:true,v
 for(let i=0;i<100&&d.querySelector("#uploadTaskBody")?.dataset.running==="true";i++)await wait();assert.equal(d.querySelector("#retryAnalysis").hidden,false);assert.equal(d.querySelector("#retryAnalysis").disabled,false);
 const uploadsBeforeRetry=calls.filter(c=>c.path==="/api/assets").length;click("#retryAnalysis");for(let i=0;i<100&&d.querySelector("#uploadTaskBody")?.dataset.running==="true";i++)await wait();assert.equal(d.querySelector("#retryAnalysis").hidden,true,d.querySelector("#uploadError").textContent+" | "+d.querySelector("#uploadProgress").textContent);assert.equal(calls.filter(c=>c.path==="/api/assets").length,uploadsBeforeRetry);w.fetch=originalFetch;click("#closeModal");click("#uploadButton");
 
+// Cancelling a duplicate must leave the same dialog usable, including after every item is cancelled.
+const cancelFetch=w.fetch;let duplicateOnce=true;
+w.fetch=async(path,opts)=>{if(path==="/api/assets"&&duplicateOnce){duplicateOnce=false;return{ok:false,status:409,json:async()=>({error:"重复图片",duplicate:role})}}return cancelFetch(path,opts)};
+const chooseMore=files=>{Object.defineProperty(d.querySelector("#fileInput"),"files",{configurable:true,value:files});change("#fileInput")};
+chooseMore([new w.File(["pixels"],"cancel-duplicate.png",{type:"image/png"})]);click("#directSaveUpload");
+for(let i=0;i<100&&d.querySelector("#uploadTaskBody")?.dataset.running==="true";i++)await wait();
+assert(d.querySelector('[data-duplicate-upload="0"]'));click('[data-task-cancel="0"]');await wait();await wait();
+assert(!d.querySelector('[data-duplicate-upload="0"]'));assert(!d.querySelector('[data-duplicate-view="0"]'));
+chooseMore([new w.File(["pixels"],"after-cancel-one.png",{type:"image/png"}),new w.File(["pixels"],"after-cancel-two.png",{type:"image/png"})]);
+assert.equal(d.querySelectorAll("[data-custom-name]").length,2);assert(!d.querySelector("#directSaveUpload").disabled);
+click('[data-task-cancel="1"]');await wait();await wait();const afterCancelUploads=calls.filter(c=>c.path==="/api/assets").length;
+click("#directSaveUpload");for(let i=0;i<100&&d.querySelector("#uploadTaskBody")?.dataset.running==="true";i++)await wait();
+assert.equal(calls.filter(c=>c.path==="/api/assets").length,afterCancelUploads+1);assert(roles.some(r=>r.name==="after-cancel-two"));
+chooseMore([new w.File(["pixels"],"after-save.png",{type:"image/png"})]);click("#directSaveUpload");
+for(let i=0;i<100&&d.querySelector("#uploadTaskBody")?.dataset.running==="true";i++)await wait();assert(roles.some(r=>r.name==="after-save"));
+w.fetch=cancelFetch;click("#closeModal");roles=roles.filter(r=>!r.identity.startsWith("upload-"));click("#uploadButton");
 const batchFiles=Array.from({length:3},(_,i)=>new w.File(["pixels"],"multi-"+i+".png",{type:"image/png",lastModified:1234}));
 Object.defineProperty(d.querySelector("#fileInput"),"files",{configurable:true,value:batchFiles.slice(0,2)});change("#fileInput");
 d.querySelector('[data-custom-name="0"]').value="kept-custom-name";

@@ -411,7 +411,7 @@ async function cancelUploadItem(job,item){
 }
 async function discardUploadItem(job,item){
  try{if(item.role){const result=await post("/api/upload-batches",{batch:job.id,action:"cancel",identities:[item.role.identity]});if(result.failed)throw new Error("临时数据清理失败，请重试取消");if(result.skipped?.length){item.cancelRequested=false;await syncUploadRoles(job,item);taskChanged(job);toast("素材已在其他设备保存，未取消");return}}
- item.cancelled=true;item.cancelRequested=false;item.file=null;item.role=null;item.error="";item.status="已取消";await refresh(true);taskChanged(job);
+  item.cancelled=true;item.cancelRequested=false;item.file=null;item.role=null;item.duplicate=null;item.error="";item.status="已取消";await refresh(true);taskChanged(job);
  }catch(error){item.cancelRequested=false;item.error=error.message;item.status="取消失败";taskChanged(job)}
 }
 async function cancelUploadTask(job){
@@ -467,7 +467,8 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
   const supported=[...files].filter(f=>/\.(png|jpe?g|webp)$/i.test(f.name));
   const fileKey=f=>[f.webkitRelativePath||f.name,f.size,f.lastModified].join("\u0000"),seen=new Set(state.files.filter(e=>e.file).map(e=>fileKey(e.file)));let duplicates=0;
   for(const file of supported){const key=fileKey(file);if(seen.has(key)){duplicates++;continue}seen.add(key);state.files.push({file,previewUrl:globalThis.URL.createObjectURL?.(file),name:relatedAsset?.name||file.name.replace(/\.[^.]+$/,""),status:"等待处理",role:null,error:""})}
-  $("#customNames").innerHTML=state.files.map((entry,i)=>'<label class="file-row">'+(state.files.length===1?'文件名':esc(entry.file.name))+'<input data-custom-name="'+i+'" value="'+esc(entry.name)+'" maxlength="80"></label>').join("");paintUploadTask(job);
+  if(supported.length&&job.items.some(i=>!i.saved&&!i.cancelled)){job.saved=false;job.status="等待处理"}
+  $("#customNames").innerHTML=state.files.map((entry,i)=>entry.saved||entry.cancelled?'':'<label class="file-row">'+esc(entry.file?.name||entry.role?.filename||entry.name)+'<input data-custom-name="'+i+'" value="'+esc(entry.name)+'" maxlength="80"></label>').join("");paintUploadTask(job);
  };
  $("#chooseFiles").onclick=()=>$("#fileInput").click();$("#chooseFolder").onclick=()=>$("#folderInput").click();
  $("#fileInput").onchange=e=>{choose(e.target.files);e.target.value=""};$("#folderInput").onchange=e=>{choose(e.target.files);e.target.value=""};
