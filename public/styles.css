@@ -110,3 +110,7 @@ button:hover{border-color:#91afd4;background:#293448}
 .prompt,.progress,.note{background:#232e40;color:#d2def0}dialog{background:#192230;border-color:#47566d}
 .dropzone{background:#1b2636;border-color:#5a708d}#toast{background:#22354e;color:#e0edff;border-color:#6c8bab}
 @media(max-width:700px){.card-actions{gap:5px}.card-actions a,.card-actions button{font-size:14px;padding:8px 2px}.card-meta{font-size:12px}.card-description{font-size:14px}.chips .chip{font-size:12px}}
+/* Child projects stay inside their parent collection card. */
+.child-project-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;margin-top:12px;border-top:1px solid var(--border,rgba(255,255,255,.15))}
+#childProjectForm{margin:20px 0}
+#childProjectForm .row{align-items:end}

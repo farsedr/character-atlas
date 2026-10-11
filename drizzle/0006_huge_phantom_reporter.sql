@@ -1,0 +1,1 @@
+ALTER TABLE `atlas_projects` ADD `parent_id` text;
