@@ -3636,7 +3636,8 @@ async function repairPreview(request,env,owner){
 }
 async function similarAssets(env,owner,url){
  const source=await ownedAsset(env,owner,url.searchParams.get('identity')),base=JSON.parse(source.body),keys=new Set((base.tags||[]).map(t=>t.dimension+':'+normalize(t.name)));
- const rows=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND id<>? ORDER BY created_at DESC,id LIMIT 5000",owner,source.id).all()).results;
+ // Search metadata only: do not load the full 24-dimension evidence for thousands of images.
+ const rows=(await query(env,"SELECT id,revision,created_at,display_number,mime,filename,size,deleted_at,json_object('name',json_extract(body,'$.name'),'relatedAssetIdentity',json_extract(body,'$.relatedAssetIdentity'),'projectNames',json_extract(body,'$.projectNames'),'projectName',json_extract(body,'$.projectName'),'width',json_extract(body,'$.width'),'height',json_extract(body,'$.height'),'visualHash',json_extract(body,'$.visualHash'),'contentHash',json_extract(body,'$.contentHash'),'tags',json((SELECT json_group_array(json_object('dimension',json_extract(t.value,'$.dimension'),'name',json_extract(t.value,'$.name'))) FROM json_each(body,'$.tags') t))) body FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND id<>? ORDER BY created_at DESC,id LIMIT 5000",owner,source.id).all()).results;
  const total=(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND id<>?",owner,source.id).first()).n;
  const matches=[];for(const row of rows){const role=JSON.parse(row.body),other=new Set((role.tags||[]).map(t=>t.dimension+':'+normalize(t.name))),common=[...keys].filter(k=>other.has(k)).length,jaccard=common/Math.max(1,new Set([...keys,...other]).size),distance=visualDistance(base.visualHash,role.visualHash),exact=!!base.contentHash&&base.contentHash===role.contentHash;
   if(exact||distance!==null&&distance<=12||common>=2&&jaccard>=.2)matches.push({role:briefRole(row),distance,common,exact,score:exact?2:Math.max(distance!==null?1-distance/64:0,jaccard),reason:exact?'相同原图':distance!==null&&distance<=12?'图像特征接近':'共有 '+common+' 个标签'});
@@ -3943,7 +3944,7 @@ async function saveAnalysis(env,row,owner,parsed,source,options={}){
   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
   if(!updated)throw new HttpError(409,"分析期间素材已修改或删除，请刷新");
   if(!saved.relatedAssetIdentity)await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.name',?,'$.projectNames',json(?),'$.projectIds',json(?),'$.projectName',?,'$.projectId',?),revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=?",role.name,JSON.stringify(role.projectNames||[role.projectName||'未分组']),JSON.stringify(role.projectIds||[]),role.projectName||'未分组',role.projectId||'',owner,row.id).run();
-  if(!saved.uploadDraft)await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
+  if(!saved.uploadDraft)await persistLabels(env,role.tags||[],owner);return json({role:bodyRole(updated),acceptedCount:locks.includes('tags')||options.fields&&!options.fields.includes('tags')?0:accepted.length});
 }
 
 async function handleApi(request,env,url,ctx){

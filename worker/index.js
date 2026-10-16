@@ -290,7 +290,7 @@ async function saveAnalysis(env,row,owner,parsed,source,options={}){
   const updated=await query(env,"UPDATE atlas_assets SET body=?,revision=revision+1 WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL RETURNING *",JSON.stringify(role),row.id,owner,row.revision).first();
   if(!updated)throw new HttpError(409,"分析期间素材已修改或删除，请刷新");
   if(!saved.relatedAssetIdentity)await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.name',?,'$.projectNames',json(?),'$.projectIds',json(?),'$.projectName',?,'$.projectId',?),revision=revision+1 WHERE owner_id=? AND json_extract(body,'$.relatedAssetIdentity')=?",role.name,JSON.stringify(role.projectNames||[role.projectName||'未分组']),JSON.stringify(role.projectIds||[]),role.projectName||'未分组',role.projectId||'',owner,row.id).run();
-  if(!saved.uploadDraft)await persistLabels(env,accepted,owner);return json({role:bodyRole(updated),acceptedCount:accepted.length});
+  if(!saved.uploadDraft)await persistLabels(env,role.tags||[],owner);return json({role:bodyRole(updated),acceptedCount:locks.includes('tags')||options.fields&&!options.fields.includes('tags')?0:accepted.length});
 }
 
 async function handleApi(request,env,url,ctx){
