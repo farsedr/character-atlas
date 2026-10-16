@@ -1,20 +1,39 @@
 {
   "name": "material-gallery",
   "private": true,
+  "version": "1.0.0",
+  "description": "拾光图鉴桌面版：本地素材库与视觉分析",
+  "author": "Character Atlas",
+  "main": "desktop/main.mjs",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "db:generate": "drizzle-kit generate",
-    "test": "node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
-    "preview": "node scripts/preview.mjs"
+    "test": "node scripts/pro-smoke.mjs && node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
+    "preview": "node scripts/preview.mjs",
+    "desktop": "electron .",
+    "desktop:build": "npm run build && node node_modules/electron/install.js --no && electron-builder --win nsis portable --x64 --publish never --config.electronDist=node_modules/electron/dist",
+    "desktop:test": "node scripts/desktop-smoke.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "drizzle-kit": "0.31.10",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "jsdom": "^30.1.1"
+  },
+  "build": {
+    "appId": "com.characteratlas.desktop",
+    "productName": "拾光图鉴",
+    "asar": true,
+    "directories": {"output": "release/desktop"},
+    "files": ["desktop/**", "dist/server/index.js", "drizzle/*.sql", "scripts/codex-connector.mjs", "scripts/local-models.mjs", "skills/**", "docs/DESKTOP-GUIDE.md", "public/icon-512.png", "package.json"],
+    "win": {"icon": "public/icon-512.png", "target": ["nsis", "portable"], "signExecutable": false},
+    "nsis": {"oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "deleteAppDataOnUninstall": false, "artifactName": "Character-Atlas-Setup-${version}.exe"},
+    "portable": {"artifactName": "Character-Atlas-Portable-${version}.exe"}
   },
   "overrides": {
     "esbuild": "$esbuild"

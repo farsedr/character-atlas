@@ -74,18 +74,18 @@ export async function run(image,exe,options={model:MODEL,reasoning:"low"},custom
   await fs.rm(absolute,{recursive:true,force:true,maxRetries:3,retryDelay:150}).catch(()=>{});
  }
 }
-export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
+export function createConnector({token,analyze,port=PORT,getModels=loadModels,origins=[ORIGIN]}){
  let active=0;const maxConcurrent=5;
  const send=(r,status,data,headers={})=>{r.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff",...headers});r.end(JSON.stringify(data))};
- return http.createServer(async(req,res)=>{
-  if(req.headers.host!=="127.0.0.1:"+port){send(res,403,{error:"来源无效"});return}
+ const server=http.createServer(async(req,res)=>{
+  if(req.headers.host!=="127.0.0.1:"+(port||server.address()?.port)){send(res,403,{error:"来源无效"});return}
   const origin=req.headers.origin;
-  const cors=origin===ORIGIN?{"Access-Control-Allow-Origin":ORIGIN,"Vary":"Origin","Access-Control-Allow-Private-Network":"true"}:{};
+  const cors=origins.includes(origin)?{"Access-Control-Allow-Origin":origin,"Vary":"Origin","Access-Control-Allow-Private-Network":"true"}:{};
   if(req.method==="GET"&&req.url==="/"&&!origin){
    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'","Referrer-Policy":"no-referrer"});
    res.end('<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="atlas-local-connector-v3" content="3"><title>拾光图鉴 · Codex / Gemini 连接</title><style>body{background:#101216;color:#eee;font:18px system-ui;max-width:700px;margin:12vh auto;padding:24px}code{display:block;overflow-wrap:anywhere;padding:24px;background:#22262e;color:#ee9a72;border-radius:12px}p{line-height:1.8}a{color:#ee9a72}</style><h1>拾光图鉴本机连接已启动</h1><p>Codex 默认 GPT-6 Luna · 低推理强度 · 标准速度；Gemini 默认 Gemini 2.5 Flash Lite<br>支持本机 Codex / 本机 Gemini；在图库模型设置中选择模型。<br>Codex 使用 ChatGPT 登录；Gemini 使用 Google 登录，无需 API 密钥。</p><p>在图库「模型设置 → 本机模型」中选择 Codex 或 Gemini，再粘贴连接码：</p><code>'+token+'</code><p>连接码每次重启更新，仅用于本机配对。连接程序关闭后无法继续分析。</p><p><a href="'+ORIGIN+'/" target="_blank" rel="noreferrer">打开拾光图鉴</a></p></html>');return;
   }
-  if(origin!==ORIGIN){send(res,403,{error:"仅允许拾光图鉴连接"});return}
+  if(!origins.includes(origin)){send(res,403,{error:"仅允许拾光图鉴连接"});return}
   if(req.method==="OPTIONS"){res.writeHead(204,{...cors,"Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Atlas-Token, X-Atlas-Model, X-Atlas-Reasoning","Access-Control-Max-Age":"600"});res.end();return}
   const provided=Buffer.from(String(req.headers["x-atlas-token"]||"")),expected=Buffer.from(token);
   if(provided.length!==expected.length||!crypto.timingSafeEqual(provided,expected)){send(res,401,{error:"连接码无效，请重新配对"},cors);return}
@@ -102,7 +102,7 @@ export function createConnector({token,analyze,port=PORT,getModels=loadModels}){
    if(image.length>2*1048576)throw Error("预览图超过2MB");if(image[0]!==255||image[1]!==216||image[2]!==255)throw Error("无效图片");
    const result=await analyze(image,options,customSkill,collections);send(res,200,{result,...options},cors);
   }catch(e){send(res,e.status||502,{error:e.message||"分析失败"},cors)}finally{active--}
- });
+ });server.activeRequests=()=>active;return server;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const token=crypto.randomBytes(24).toString("hex");
