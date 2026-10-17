@@ -1,4 +1,24 @@
 const analysisFieldNames={name:'名称',projects:'灵感集',tags:'标签',description:'描述',generationPrompt:'提示词'};
+function wireUploadCollection(job,related){
+ if(related)return;
+ const field=document.createElement('section');field.className='setup-step upload-collection-options';field.innerHTML='<label>保存方式<select id="uploadMode"><option value="independent">独立素材 · 每张单独展示</option><option value="collection">组成集合 · 选择一张主图</option></select></label><p class="form-note">组成集合后，主图在灵感总览展示并占一个编号，其余图片作为子图，只在集合中展示。</p><div id="uploadMainPicker" hidden></div>';job.formNode.prepend(field);
+ field.querySelector('select').onchange=e=>{if(job.started||job.items.some(i=>i.role||i.saved)){e.target.value=job.collectionMode?'collection':'independent';toast('已有图片开始上传，请完成或取消本批后再切换保存方式');return}job.collectionMode=e.target.value==='collection';paintUploadTask(job)};
+}
+function paintUploadCollection(job,root){
+ const mode=root.querySelector('#uploadMode');if(mode)mode.disabled=job.started||job.active||job.saving||job.items.some(i=>i.role||i.saved);
+ if(!job.collectionMode){const picker=root.querySelector('#uploadMainPicker');if(picker)picker.hidden=true;return}
+ let picker=root.querySelector('#uploadMainPicker');if(!picker){picker=document.createElement('section');picker.id='uploadMainPicker';picker.className='setup-step';root.prepend(picker)}picker.hidden=false;
+ const select=root.querySelector('#uploadMode');if(select){select.value='collection';select.disabled=job.started||job.active||job.saving||job.items.some(i=>i.role||i.saved)}
+ if(job.relatedAssetIdentity&&!job.collectionRoot){job.collectionRoot={identity:job.relatedAssetIdentity,name:job.items.find(i=>i.role)?.role.name||'当前集合'}}
+ if(job.collectionRoot){picker.innerHTML='<p class="form-note">集合已创建：'+esc(job.collectionRoot.name)+'。继续添加的图片将作为子图保存；更换主图请在素材详情中操作。</p>';return}
+ if(job.mainItem?.cancelled||job.mainItem?.cancelRequested){job.mainItem=null;job.mainNeedsSelection=true}
+ const candidates=job.items.filter(i=>!i.cancelled&&!i.cancelRequested&&!i.saved);
+ if(!job.mainItem&&!job.mainNeedsSelection&&candidates.length)job.mainItem=candidates[0];
+ picker.innerHTML='<div class="prompt-heading"><h3>选择主图</h3><span class="form-note">'+(job.mainItem?'主图：'+esc(job.mainItem.role?.name||job.mainItem.name):'请从本批图片中选择一张')+'</span></div><p class="form-note">保存时统一沿用主图的名称和灵感集；每张图片的标签、描述、提示词仍独立分析。只保存已上传成功的图片，未上传成功项可继续重试。</p><div class="upload-main-grid">'+candidates.map(item=>{const n=job.items.indexOf(item),selected=job.mainItem===item;return '<button type="button" data-pick-upload-main="'+n+'" class="'+(selected?'is-selected':'')+'" aria-pressed="'+selected+'" '+(job.saving?'disabled':'')+'>'+(item.role?.imageUrl||item.previewUrl?'<img src="'+esc(item.role?.imageUrl||item.previewUrl)+'" alt="'+esc(item.name)+'">':'')+'<span>'+esc(item.role?.name||item.name)+'</span><small>'+(selected?'已选主图':'设为主图')+'</small></button>'}).join('')+'</div>';
+ picker.querySelectorAll('[data-pick-upload-main]').forEach(button=>button.onclick=()=>{job.mainItem=job.items[Number(button.dataset.pickUploadMain)];job.mainNeedsSelection=false;paintUploadCollection(job,root)});
+ // Saving a collection is a batch action; avoid suggesting that a child can be saved independently.
+ root.querySelectorAll('[data-task-save]').forEach(button=>{button.textContent='保存集合';button.title='统一保存本批已上传的图片到一个集合'});
+}
 function wireAnalysisLocks(role){
  $('#formError').insertAdjacentHTML('beforebegin','<details class="setup-step"><summary>分析字段锁定</summary><p class="form-note">锁定后模型分析不能覆盖；仍可手动编辑。集合的名称和灵感集始终跟随主图。</p><div class="pro-field-options">'+Object.entries(analysisFieldNames).map(([key,name])=>'<label class="check"><input type="checkbox" data-analysis-lock="'+key+'" '+((role.analysisLocks||[]).includes(key)?'checked':'')+'>'+name+'</label>').join('')+'</div></details>');
 }

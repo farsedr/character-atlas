@@ -1,4 +1,29 @@
 const ANALYSIS_FIELDS=['name','projects','tags','description','generationPrompt'];
+async function saveBatchCollection(env,owner,b,all,ctx){
+ const active=all.filter(r=>!r.deleted_at&&!JSON.parse(r.body).cancelPending),savedMain=active.find(r=>!JSON.parse(r.body).uploadDraft&&!JSON.parse(r.body).relatedAssetIdentity);
+ let main=savedMain;if(!main){if(typeof b.mainIdentity!=='string')throw new HttpError(400,'请先选择一张已上传成功的主图');main=active.find(r=>r.id===b.mainIdentity);if(!main&&active.length&&active.every(r=>JSON.parse(r.body).relatedAssetIdentity===b.mainIdentity))main=await ownedAsset(env,owner,b.mainIdentity);if(!main)throw new HttpError(400,'主图未上传成功或已取消，请重新选择')}
+ let mainRole=JSON.parse(main.body);if(mainRole.relatedAssetIdentity){main=await ownedAsset(env,owner,mainRole.relatedAssetIdentity);mainRole=JSON.parse(main.body)}
+ if(mainRole.relatedAssetIdentity||mainRole.cancelPending)throw new HttpError(409,'主图已变化，请刷新后重新选择');
+ const drafts=active.filter(r=>JSON.parse(r.body).uploadDraft);if(!drafts.length)return json({saved:active.length,roles:active.map(bodyRole),main:bodyRole(main)});
+ if(drafts.some(r=>JSON.parse(r.body).analysisStatus==='analyzing'&&Date.now()-(JSON.parse(r.body).analysisStarted||0)<90000))throw new HttpError(409,'仍有图片正在分析，请完成后再保存集合');
+ if(drafts.some(r=>JSON.parse(r.body).uploadMode!=='collection'))throw new HttpError(400,'本批包含独立素材，不能直接组成集合');
+ const groups=await memberships(env,owner,mainRole.projectNames||[mainRole.projectName||'未分组']);
+ const expected=JSON.stringify([...drafts.filter(r=>r.id!==main.id),main].map(r=>({id:r.id,revision:r.revision}))),guard=query(env,"SELECT CASE WHEN (SELECT COUNT(*) FROM atlas_assets a JOIN json_each(?) e ON a.id=json_extract(e.value,'$.id') AND a.revision=json_extract(e.value,'$.revision') WHERE a.owner_id=? AND a.deleted_at IS NULL AND COALESCE(json_extract(a.body,'$.cancelPending'),0)=0)=? THEN 1 ELSE json('invalid') END",expected,owner,drafts.filter(r=>r.id!==main.id).length+1);
+ const statements=[guard];
+ if(mainRole.uploadDraft){const body={...mainRole,...groups,uploadDraft:false,uploadSettings:{...(mainRole.uploadSettings||{}),collectionRoot:main.id}};delete body.relatedAssetIdentity;
+  statements.push(query(env,"UPDATE atlas_assets SET body=?,display_number=("+gapSQL+") ,revision=revision+1 WHERE id=? AND owner_id=? AND revision=?",JSON.stringify(body),owner,owner,main.id,owner,main.revision));
+ }
+ const childIds=JSON.stringify(drafts.filter(r=>r.id!==main.id).map(r=>r.id));
+ statements.push(query(env,"UPDATE atlas_assets SET body=json_set(body,'$.uploadDraft',json('false'),'$.relatedAssetIdentity',?,'$.name',?,'$.projectNames',json(?),'$.projectIds',json(?),'$.projectName',?,'$.projectId',?,'$.namingMode','custom','$.groupingMode','manual','$.uploadSettings.collectionRoot',?),display_number=NULL,revision=revision+1 WHERE owner_id=? AND id IN (SELECT value FROM json_each(?))",main.id,mainRole.name,JSON.stringify(groups.projectNames),JSON.stringify(groups.projectIds),groups.projectName,groups.projectId,main.id,owner,childIds));
+ // A missing number must roll back the children too; retries see the same committed root.
+ statements.push(query(env,"SELECT CASE WHEN EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND display_number IS NOT NULL AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')='') THEN 1 ELSE json('invalid') END",main.id,owner));
+ try{await getDb(env).batch(statements)}catch{throw new HttpError(409,'图片状态或可用编号已变化，本次未保存，请刷新后重试')}
+ const committed=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0",owner,b.batch).all()).results;
+ const root=await query(env,'SELECT * FROM atlas_assets WHERE id=? AND owner_id=?',main.id,owner).first();let backupQueued=false,backupError='';
+ for(const row of committed)await persistLabels(env,JSON.parse(row.body).tags||[],owner);
+ try{const connection=await baiduConnection(env,owner);if(connection?.status==='connected'){for(const row of committed)await enqueueBaidu(env,owner,row.id);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError='集合已保存，网盘备份启动失败，请在云盘连接中重试'}
+ return json({saved:committed.length,roles:committed.map(bodyRole),main:bodyRole(root),backupQueued,backupError});
+}
 function fieldLocks(value){if(!Array.isArray(value)||value.some(f=>!ANALYSIS_FIELDS.includes(f)))throw new HttpError(400,'锁定字段无效');return [...new Set(value)]}
 async function ownedAsset(env,owner,identity,revision){
  if(typeof identity!=='string'||identity.length>100)throw new HttpError(400,'素材标识无效');
