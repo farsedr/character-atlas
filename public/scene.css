@@ -49,14 +49,18 @@ dialog{background:rgba(16,27,44,.78)!important;backdrop-filter:blur(9px)}
 #authScreen .auth-links{border-top-color:#cbdcf566!important}
 #authScreen #rememberPassword[aria-pressed="true"]{border-color:#dec6ff99!important;color:#e4caff!important}
 dialog::backdrop{background:transparent!important;backdrop-filter:none!important}
-/* Floating panels are 60% transparent; soften only their surface, not their content. */
+/* Keep background artwork visible around panels without letting its text compete. */
 #modal,#filterPopover,#app .project-popup,#modal .project-popup{
- background-color:rgba(14,22,36,.4)!important;
+ background-color:rgba(14,22,36,.92)!important;
  background-image:radial-gradient(ellipse at center,rgba(23,33,51,.08),transparent 85%)!important;
  box-shadow:0 0 24px 8px rgba(14,22,36,.22)!important;
- backdrop-filter:blur(12px)!important;
+ backdrop-filter:blur(16px)!important;
  border-radius:20px;
 }
+#app .sidebar nav>button,#app .sidebar-bottom>button:has(.sidebar-icon){display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;column-gap:10px;text-align:left}
+#app .sidebar-icon{display:grid;place-items:center;width:20px;min-width:20px;height:24px;font-family:"Segoe UI Symbol",system-ui,sans-serif;line-height:1}
+#app .sidebar-label{min-width:0;line-height:1.6;text-align:left}
+#uploadForm>.dialog-actions{background-color:#101b2c!important;background-image:none!important;box-shadow:0 -10px 20px #101b2c99!important;isolation:isolate;z-index:10}
 #modal[data-kind="asset-detail"]{width:min(1100px,calc(100vw - 32px));height:min(90dvh,900px);padding:24px}
 #modal[data-kind="asset-detail"] #modalContent{height:100%;max-height:100%;min-height:0}
 #modal[data-kind="asset-detail"] .dialog-body{overflow:hidden;flex:1;display:flex;min-height:0}
