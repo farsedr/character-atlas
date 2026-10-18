@@ -4,7 +4,7 @@ async function promoteCollectionMain(request,env,owner){
  if(!main||!next)throw new HttpError(404,"素材不存在");const previous=JSON.parse(main.body),chosen=JSON.parse(next.body);
  if(main.revision!==b.mainRevision||next.revision!==b.revision)throw new HttpError(409,"素材已变化，请刷新后重试");
  if(previous.relatedAssetIdentity||previous.uploadDraft||!main.display_number||chosen.relatedAssetIdentity!==main.id||chosen.uploadDraft||chosen.cancelPending)throw new HttpError(400,"请选择此集合中已保存的图片作为主素材");
- const newBody={...chosen,name:previous.name,projectName:previous.projectName,projectId:previous.projectId,projectNames:previous.projectNames,projectIds:previous.projectIds};delete newBody.relatedAssetIdentity;delete newBody.deletedWithMain;
+ const newBody={...chosen,projectName:previous.projectName,projectId:previous.projectId,projectNames:previous.projectNames,projectIds:previous.projectIds};delete newBody.relatedAssetIdentity;delete newBody.deletedWithMain;
  const oldBody={...previous,relatedAssetIdentity:next.id};delete oldBody.deletedWithMain;
  const guard="SELECT CASE WHEN EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL AND display_number=? AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')='') AND EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND revision=? AND deleted_at IS NULL AND json_extract(body,'$.relatedAssetIdentity')=? AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0) THEN 1 ELSE json('invalid') END";
  try{await getDb(env).batch([
@@ -43,7 +43,7 @@ async function assetDetail(env,owner,identity){
  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.cancelPending'),0)=0",identity,owner).first();if(!row)throw new HttpError(404,"素材不存在");
  const role=bodyRole(row),anchor=role.relatedAssetIdentity||role.identity;
  const relatives=(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 AND (id=? OR json_extract(body,'$.relatedAssetIdentity')=?) ORDER BY created_at,id",owner,anchor,anchor).all()).results.map(bodyRole),main=relatives.find(r=>r.identity===anchor);
- if(role.relatedAssetIdentity&&main)Object.assign(role,{name:main.name,projectNames:main.projectNames,projectIds:main.projectIds,projectName:main.projectName,projectId:main.projectId});
+ if(role.relatedAssetIdentity&&main)Object.assign(role,{projectNames:main.projectNames,projectIds:main.projectIds,projectName:main.projectName,projectId:main.projectId});
  return json({role,relatives});
 }
 async function uploadState(request,env,owner){const b=await request.json();if(!Array.isArray(b.identities)||b.identities.length>1000||b.identities.some(id=>typeof id!=="string"))throw new HttpError(400,"素材标识无效");const rows=[];for(let i=0;i<b.identities.length;i+=80){const ids=b.identities.slice(i,i+80);rows.push(...(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND id IN ("+ids.map(()=>"?").join(",")+")",owner,...ids).all()).results)}return json({taskAssets:rows.map(bodyRole)})}

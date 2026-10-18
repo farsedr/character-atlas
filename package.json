@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "db:generate": "drizzle-kit generate",
-    "test": "node scripts/skill-smoke.mjs && node scripts/performance-smoke.mjs && node scripts/backup-ui-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
+    "test": "node scripts/collection-name-smoke.mjs && node scripts/skill-smoke.mjs && node scripts/performance-smoke.mjs && node scripts/backup-ui-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
     "preview": "node scripts/preview.mjs",
     "desktop": "electron .",
     "desktop:build": "npm run build && node node_modules/electron/install.js --no && electron-builder --win nsis portable --x64 --publish never --config.electronDist=node_modules/electron/dist",
