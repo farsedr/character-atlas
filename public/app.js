@@ -33,7 +33,7 @@ async function analyzeAsset(role,choice=codexLocal.connected?codexLocal.provider
  const options={model,reasoning:supported.efforts.includes(codexLocal.reasoning)?codexLocal.reasoning:(supported.efforts.includes("low")?"low":supported.efforts[0])};
  const response=await fetch(role.imageUrl,{credentials:"same-origin"});
  if(!response.ok)throw new Error("无法读取预览图");
- const bytes=new Uint8Array(await response.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const installed=await api("/api/analysis-skill");const result=await codexRequest("analyze",{method:"POST",headers:{"Content-Type":"application/json","X-Atlas-Model":options.model,"X-Atlas-Reasoning":options.reasoning},body:JSON.stringify({image:btoa(binary),skill:(installed.skill?.content||installed.defaultSkill||"")+collectionAnalysisReference(role),collections:allProjects().slice(0,200)})});
+ const bytes=new Uint8Array(await response.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const installed=await api("/api/analysis-skill");const result=await codexRequest("analyze",{method:"POST",headers:{"Content-Type":"application/json","X-Atlas-Model":options.model,"X-Atlas-Reasoning":options.reasoning},body:JSON.stringify({image:btoa(binary),skill:(installed.skill?.content||"")+collectionAnalysisReference(role),collections:allProjects().slice(0,200)})});
  return post(assetPath(role,"analysis-result"),{identity:role.identity,revision:role.revision,result:result.result,model:result.model,reasoning:result.reasoning,preview});
 }
 

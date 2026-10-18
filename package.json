@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "db:generate": "drizzle-kit generate",
-    "test": "node scripts/performance-smoke.mjs && node scripts/backup-ui-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
+    "test": "node scripts/skill-smoke.mjs && node scripts/performance-smoke.mjs && node scripts/backup-ui-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/smoke.mjs && node scripts/ui-smoke.mjs && node scripts/codex-smoke.mjs && node scripts/baidu-smoke.mjs",
     "preview": "node scripts/preview.mjs",
     "desktop": "electron .",
     "desktop:build": "npm run build && node node_modules/electron/install.js --no && electron-builder --win nsis portable --x64 --publish never --config.electronDist=node_modules/electron/dist",
@@ -30,7 +30,7 @@
     "productName": "拾光图鉴",
     "asar": true,
     "directories": {"output": "release/desktop"},
-    "files": ["desktop/**", "dist/server/index.js", "drizzle/*.sql", "scripts/codex-connector.mjs", "scripts/local-models.mjs", "skills/**", "docs/DESKTOP-GUIDE.md", "public/icon-512.png", "package.json"],
+    "files": ["desktop/**", "dist/server/index.js", "drizzle/*.sql", "scripts/codex-connector.mjs", "scripts/local-models.mjs", "scripts/analysis-contract.mjs", "skills/**", "docs/DESKTOP-GUIDE.md", "public/icon-512.png", "package.json"],
     "win": {"icon": "public/icon-512.png", "target": ["nsis", "portable"], "signExecutable": false},
     "nsis": {"oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "deleteAppDataOnUninstall": false, "artifactName": "Character-Atlas-Setup-${version}.exe"},
     "portable": {"artifactName": "Character-Atlas-Portable-${version}.exe"}
