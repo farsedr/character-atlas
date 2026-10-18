@@ -89,7 +89,7 @@ async function baiduStep(env,owner){
   return {worked:true};
  }catch(e){await write({status:"failed",error:e instanceof HttpError?e.message:"备份失败，请重试"});return {worked:true,failed:true}}
 }
-async function baiduBackground(env,owner){const deadline=Date.now()+18000;try{while(Date.now()<deadline){const r=await baiduStep(env,owner);if(!r.worked||r.failed)break}}catch{/* State remains durable; next device can resume. */}}
+async function baiduBackground(env,owner){const deadline=Date.now()+18000;try{while(Date.now()<deadline){const r=await baiduStep(env,owner);if(!r.worked)break}}catch{/* State remains durable; next device can resume. */}}
 async function baiduBackupDownload(env,owner,identity){
  const row=await query(env,"SELECT a.*,b.fs_id,b.remote_path,b.connection_id FROM atlas_assets a JOIN atlas_baidu_backups b ON b.asset_id=a.id AND b.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND b.status='done'",identity,owner).first();if(!row)throw new HttpError(404,"此素材尚未完成百度备份");
  const {connection,access}=await baiduAccess(env,owner);if(connection.id!==row.connection_id)throw new HttpError(409,"备份所属连接已变化");

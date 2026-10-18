@@ -1,4 +1,7 @@
-let baiduPump=null,baiduStop=false,baiduViewedTask="";
+let baiduPump=null,baiduStop=false,baiduViewedTask="",baiduWake=null,baiduBackoff=5000;
+function scheduleBaiduResume(owner,delay){clearTimeout(baiduWake);baiduWake=setTimeout(()=>{if(!baiduStop&&state.user?.id===owner)return globalThis.resumeBaiduBackup()},delay)}
+window.addEventListener('online',()=>{if(!baiduStop&&state.user)globalThis.resumeBaiduBackup()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!baiduStop&&state.user)globalThis.resumeBaiduBackup()});
 function baiduStateText(s){return {pending:'等待备份',done:'备份完成',failed:'备份失败'}[s]||s}
 async function renderBaiduStatus(){
  const s=await api('/api/storage/baidu'+(baiduViewedTask?'?task='+encodeURIComponent(baiduViewedTask):'')),target=$('#baiduStatus');if(!target)return s;
@@ -12,8 +15,18 @@ async function renderBaiduStatus(){
  return s;
 }
 globalThis.resumeBaiduBackup=async function(){
- if(baiduPump||!state.user)return;const owner=state.user.id;baiduStop=false;
- baiduPump=(async()=>{try{const s=await api('/api/storage/baidu');if(!s.configured||s.connection?.status!=='connected')return;while(!baiduStop&&state.user?.id===owner){const r=await post('/api/storage/baidu/step',{});if($('#baiduStatus'))await renderBaiduStatus();if(!r.worked||r.failed)break}}catch(e){if($('#baiduError'))$('#baiduError').textContent=e.message}finally{baiduPump=null}})();return baiduPump;
+ if(baiduPump||!state.user)return;const owner=state.user.id;baiduStop=false;clearTimeout(baiduWake);
+ baiduPump=(async()=>{let wake=0;try{
+ const s=await api('/api/storage/baidu');if(!s.configured||s.connection?.status!=='connected')return;
+ while(!baiduStop&&state.user?.id===owner){
+ const r=await post('/api/storage/baidu/step',{});baiduBackoff=5000;
+ if(state.user?.id!==owner)break;
+ if($('#baiduStatus'))await renderBaiduStatus();
+ // A failed item is retained for manual retry; it must not block other pending items.
+ if(!r.worked){const latest=await api('/api/storage/baidu');if(latest.connection?.status==='connected'&&latest.counts?.pending)wake=65000;break}
+ }
+ }catch(e){if(state.user?.id===owner&&$('#baiduError'))$('#baiduError').textContent=e.message;if(!e.status||e.status>=500||e.status===429){wake=baiduBackoff;baiduBackoff=Math.min(60000,baiduBackoff*2)}}finally{baiduPump=null;if(wake&&!baiduStop&&state.user?.id===owner)scheduleBaiduResume(owner,wake)}
+ })();return baiduPump;
 };
 async function baiduDialog(taskId=''){
  baiduViewedTask=typeof taskId==='string'?taskId:'';

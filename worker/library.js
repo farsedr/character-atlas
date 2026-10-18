@@ -15,10 +15,13 @@ async function promoteCollectionMain(request,env,owner){
  ])}catch{throw new HttpError(409,"集合已变化，请刷新后重试")}
  return assetDetail(env,owner,next.id);
 }
+// Omit model evidence and prompts before sending rows from the database to the Worker.
+const briefAssetColumns="id,owner_id,display_number,deleted_at,original_key,preview_key,mime,filename,size,revision,created_at,json_remove(body,'$.analysisResult','$.generationPrompt') AS body";
 function briefRole(row){const role=bodyRole(row);delete role.analysisResult;delete role.generationPrompt;return role}
 async function pagedLibrary(env,owner,url){
  const size=Number(url.searchParams.get("size")||100),requested=Number(url.searchParams.get("page")||1),view=url.searchParams.get("view")||"all";
  if(!Number.isInteger(size)||size<1||size>100||!Number.isInteger(requested)||requested<1)throw new HttpError(400,"页码或每页数量无效");
+ const extras=url.searchParams.get("extras")!=="0";
  const where=["owner_id=?","deleted_at IS NULL","COALESCE(json_extract(body,'$.uploadDraft'),0)=0","COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')=''"],args=[owner];
  const search=(url.searchParams.get("q")||"").slice(0,200),projectName=url.searchParams.get("project");
  if(search){where.push("(lower(json_extract(body,'$.name')||' '||filename||' '||COALESCE(json_extract(body,'$.description'),'')||' '||COALESCE(json_extract(body,'$.generationPrompt'),'')||' '||COALESCE(json_extract(body,'$.projectNames'),'')||' '||COALESCE(json_extract(body,'$.tags'),'')||' '||printf('CHAR-%05d',display_number)) LIKE ? ESCAPE '\\')");args.push("%"+search.toLowerCase().replace(/[\\%_]/g,"\\$&")+"%")}
@@ -28,17 +31,18 @@ async function pagedLibrary(env,owner,url){
  for(const [dim,value] of Object.entries(filters)){if(!value)continue;if(!dimensions().includes(dim)||typeof value!=="string"||value.length>40)throw new HttpError(400,"筛选条件无效");where.push("EXISTS(SELECT 1 FROM json_each(body,'$.tags') WHERE json_extract(value,'$.dimension')=? AND json_extract(value,'$.name')=?)");args.push(dim,value)}
  const clause=where.join(" AND "),total=(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE "+clause,...args).first()).n,pages=Math.max(1,Math.ceil(total/size)),page=Math.min(requested,pages),sort={id:"display_number,id",name:"json_extract(body,'$.name') COLLATE NOCASE,id",new:"created_at DESC,id",recent:"created_at DESC,id"}[url.searchParams.get("sort")||"id"];
  if(!sort)throw new HttpError(400,"排序方式无效");
- const rows=view==="library"||view==="all"?(await query(env,"SELECT * FROM atlas_assets WHERE "+clause+" ORDER BY "+sort+" LIMIT ? OFFSET ?",...args,size,(page-1)*size).all()).results:[];
- const drafts=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 ORDER BY created_at DESC",owner).all()).results;
- const recycle=view==="recycle"||view==="all"?(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 ORDER BY created_at DESC",owner).all()).results:[];
+ const rows=view==="library"||view==="all"?(await query(env,"SELECT "+(view==="all"?"*":briefAssetColumns)+" FROM atlas_assets WHERE "+clause+" ORDER BY "+sort+" LIMIT ? OFFSET ?",...args,size,(page-1)*size).all()).results:[];
+ const drafts=extras?(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 ORDER BY created_at DESC",owner).all()).results:[];
+ const recycle=view==="recycle"||view==="all"?(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 ORDER BY created_at DESC",owner).all()).results:[];
  const collections=view==="all"?(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' LIMIT 100",owner).all()).results:[];
- const ps=(await query(env,"SELECT p.*,(SELECT COUNT(*) FROM atlas_assets a WHERE a.owner_id=p.owner_id AND a.deleted_at IS NULL AND COALESCE(json_extract(a.body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(a.body,'$.relatedAssetIdentity'),'')='' AND (json_extract(a.body,'$.projectName')=p.name OR EXISTS(SELECT 1 FROM json_each(a.body,'$.projectNames') WHERE value=p.name))) assetCount FROM atlas_projects p WHERE p.owner_id=? ORDER BY p.created_at",owner).all()).results,cfg=await modelConfig(env,owner),pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) n").first();
- return json({roles:rows.map(view==="all"?bodyRole:briefRole),collections:collections.map(bodyRole),drafts:drafts.map(bodyRole),recycle:recycle.map(bodyRole),labels:await registry(env,owner),projects:ps.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),pagination:{page,size,total,pages},analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg),migrationPending:!!pending.n});
+ let supplemental={};if(extras){const ps=(await query(env,"SELECT p.*,(SELECT COUNT(*) FROM atlas_assets a WHERE a.owner_id=p.owner_id AND a.deleted_at IS NULL AND COALESCE(json_extract(a.body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(a.body,'$.relatedAssetIdentity'),'')='' AND (json_extract(a.body,'$.projectName')=p.name OR EXISTS(SELECT 1 FROM json_each(a.body,'$.projectNames') WHERE value=p.name))) assetCount FROM atlas_projects p WHERE p.owner_id=? ORDER BY p.created_at",owner).all()).results,cfg=await modelConfig(env,owner),pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) n").first();
+ supplemental={drafts:drafts.map(bodyRole),labels:await registry(env,owner),projects:ps.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg),migrationPending:!!pending.n};}
+ return json({roles:rows.map(view==="all"?bodyRole:briefRole),collections:collections.map(bodyRole),recycle:recycle.map(briefRole),pagination:{page,size,total,pages},...supplemental});
 }
 async function assetDetail(env,owner,identity){
  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.cancelPending'),0)=0",identity,owner).first();if(!row)throw new HttpError(404,"素材不存在");
  const role=bodyRole(row),anchor=role.relatedAssetIdentity||role.identity;
- const relatives=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 AND (id=? OR json_extract(body,'$.relatedAssetIdentity')=?) ORDER BY created_at,id",owner,anchor,anchor).all()).results.map(bodyRole),main=relatives.find(r=>r.identity===anchor);
+ const relatives=(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 AND (id=? OR json_extract(body,'$.relatedAssetIdentity')=?) ORDER BY created_at,id",owner,anchor,anchor).all()).results.map(bodyRole),main=relatives.find(r=>r.identity===anchor);
  if(role.relatedAssetIdentity&&main)Object.assign(role,{name:main.name,projectNames:main.projectNames,projectIds:main.projectIds,projectName:main.projectName,projectId:main.projectId});
  return json({role,relatives});
 }

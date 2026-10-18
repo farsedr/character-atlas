@@ -61,7 +61,7 @@ async function authApi(request,env,url){
  }
  if(!u)throw new HttpError(401,"请登录拾光图鉴");
  if(path==="/api/auth/logout"&&m==="POST"){
-  await query(env,"DELETE FROM atlas_sessions WHERE hash=?",u.session_hash).run();const r=json({ok:true});r.headers.set("Set-Cookie","__Host-atlas=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");return r;
+  await query(env,"DELETE FROM atlas_sessions WHERE hash=?",u.session_hash).run();const r=json({ok:true});r.headers.set("Clear-Site-Data",'"cache"');r.headers.set("Set-Cookie","__Host-atlas=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");return r;
  }
  if(path==="/api/auth/sessions"&&m==="GET"){
   const rows=await query(env,"SELECT hash,created_at,expires_at,agent FROM atlas_sessions WHERE user_id=? AND expires_at>? ORDER BY created_at DESC",u.id,now()).all();

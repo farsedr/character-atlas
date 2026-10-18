@@ -173,5 +173,14 @@ w.taskChecks.analysisReview(proRole,{revision:proRole.revision,result:{test:true
 await w.taskChecks.healthDialog();assert(d.querySelector('.pro-table').textContent.includes('主素材'));click('#scanHealth');await wait();await wait();assert(d.querySelector('#healthIssues').textContent.includes('草稿已保留超过7天'));assert(d.querySelector('#healthProgress').textContent.includes('检查完成'));
 await w.taskChecks.similarDialog(proRole);assert(d.querySelector('[data-compare-similar="0"]'));click('[data-compare-similar="0"]');await wait();await wait();assert.equal(d.querySelectorAll('.pro-image-compare img').length,2);assert(d.querySelector('#copySimilarToCollection'));w.fetch=baseTransport;
 console.log('PASS: batch edit submission, persisted lock controls, selective review, capacity scan and two-image similarity comparison.');
+// An unchanged background refresh must preserve the existing DOM and focus.
+click('#closeModal');await wait();w.taskChecks.state.view='library';w.taskChecks.state.page=1;await w.taskChecks.refresh();
+const retainedContent=d.querySelector('#content').firstElementChild,retainedCard=d.querySelector('#content .card');
+await w.taskChecks.refresh(true);assert.strictEqual(d.querySelector('#content').firstElementChild,retainedContent);assert.strictEqual(d.querySelector('#content .card'),retainedCard);
+// Old requests must not overwrite the newer page, even if the transport ignores abort.
+let releaseOld,seen=0;const stableFetch=w.fetch;
+w.fetch=async(path,opts)=>{if(String(path).startsWith('/api/library?')){seen++;if(seen===1)return new Promise(resolve=>{releaseOld=async()=>resolve(await stableFetch(path,opts))})}return stableFetch(path,opts)};
+const oldRefresh=w.taskChecks.refresh(true);await w.taskChecks.refresh(true);const newestContent=d.querySelector('#content').firstElementChild;await releaseOld();await oldRefresh;assert.strictEqual(d.querySelector('#content').firstElementChild,newestContent);w.fetch=stableFetch;
+console.log('PASS: unchanged refresh retains DOM; stale requests cannot overwrite the newer view.');
 click("#logoutButton");await wait();assert.equal(d.querySelector("#app").hidden,true);assert.equal(d.querySelector("#content").innerHTML,"");
 dom.window.close();console.log("PASS: restored atlas layout, restored sidebar navigation, no all prefixes, Enter/add/save automatic child tags, finer thematic suggestions, actual UI scripts, independent signup, recovery reminder, twelve filters, ZIP batch-download button, updated copy, age/era combinations, metadata/aspect ratio, editable prompt, dynamic clothing groups, folder picker, naming modes, custom projects, secret cleanup, bulk selection/delete, independent account UI, logout clearing.");
