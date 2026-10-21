@@ -32,19 +32,27 @@ async function pagedLibrary(env,owner,url){
  const clause=where.join(" AND "),total=(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE "+clause,...args).first()).n,pages=Math.max(1,Math.ceil(total/size)),page=Math.min(requested,pages),sort={id:"display_number,id",name:"json_extract(body,'$.name') COLLATE NOCASE,id",new:"created_at DESC,id",recent:"created_at DESC,id"}[url.searchParams.get("sort")||"id"];
  if(!sort)throw new HttpError(400,"排序方式无效");
  const rows=view==="library"||view==="all"?(await query(env,"SELECT "+(view==="all"?"*":briefAssetColumns)+" FROM atlas_assets WHERE "+clause+" ORDER BY "+sort+" LIMIT ? OFFSET ?",...args,size,(page-1)*size).all()).results:[];
- const drafts=extras?(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 ORDER BY created_at DESC",owner).all()).results:[];
- const recycle=view==="recycle"||view==="all"?(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 ORDER BY created_at DESC",owner).all()).results:[];
+ const draftResult=extras?await draftPage(env,owner):null;
+ const recycleWhere="owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0";
+ const recycleTotal=view==="recycle"||view==="all"?(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE "+recycleWhere,owner).first()).n:0;
+ const recyclePages=Math.max(1,Math.ceil(recycleTotal/size)),recyclePage=Math.min(requested,recyclePages);
+ const recycle=view==="recycle"||view==="all"?(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE "+recycleWhere+" ORDER BY created_at DESC,id LIMIT ? OFFSET ?",owner,size,(recyclePage-1)*size).all()).results:[];
  const collections=view==="all"?(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')<>'' LIMIT 100",owner).all()).results:[];
  let supplemental={};if(extras){const ps=(await query(env,"SELECT p.*,(SELECT COUNT(*) FROM atlas_assets a WHERE a.owner_id=p.owner_id AND a.deleted_at IS NULL AND COALESCE(json_extract(a.body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(a.body,'$.relatedAssetIdentity'),'')='' AND (json_extract(a.body,'$.projectName')=p.name OR EXISTS(SELECT 1 FROM json_each(a.body,'$.projectNames') WHERE value=p.name))) assetCount FROM atlas_projects p WHERE p.owner_id=? ORDER BY p.created_at",owner).all()).results,cfg=await modelConfig(env,owner),pending=await query(env,"SELECT EXISTS(SELECT 1 FROM atlas_assets WHERE owner_id IS NULL) n").first();
- supplemental={drafts:drafts.map(bodyRole),labels:await registry(env,owner),projects:ps.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg),migrationPending:!!pending.n};}
- return json({roles:rows.map(view==="all"?bodyRole:briefRole),collections:collections.map(bodyRole),recycle:recycle.map(briefRole),pagination:{page,size,total,pages},...supplemental});
+ supplemental={drafts:draftResult.drafts,draftCursor:draftResult.nextCursor,labels:await registry(env,owner),projects:ps.map(p=>({...p,isSystem:SYSTEM_COLLECTIONS.includes(p.name)})),analysisEnabled:!!env.AI_CONFIG_KEY&&!!cfg,modelConfig:publicConfig(cfg),migrationPending:!!pending.n};}
+ return json({roles:rows.map(view==="all"?bodyRole:briefRole),collections:collections.map(bodyRole),recycle:recycle.map(briefRole),pagination:view==="recycle"?{page:recyclePage,size,total:recycleTotal,pages:recyclePages}:{page,size,total,pages},...supplemental});
 }
-async function assetDetail(env,owner,identity){
+async function assetDetail(env,owner,identity,cursor=""){
+ if(typeof cursor!=="string"||cursor.length>100)throw new HttpError(400,"游标无效");
  const row=await query(env,"SELECT * FROM atlas_assets WHERE id=? AND owner_id=? AND COALESCE(json_extract(body,'$.cancelPending'),0)=0",identity,owner).first();if(!row)throw new HttpError(404,"素材不存在");
  const role=bodyRole(row),anchor=role.relatedAssetIdentity||role.identity;
- const relatives=(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 AND (id=? OR json_extract(body,'$.relatedAssetIdentity')=?) ORDER BY created_at,id",owner,anchor,anchor).all()).results.map(bodyRole),main=relatives.find(r=>r.identity===anchor);
+ const childWhere="owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 AND json_extract(body,'$.relatedAssetIdentity')=?";
+ const mainRow=await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE owner_id=? AND id=? AND deleted_at IS NULL",owner,anchor).first();
+ const children=(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE "+childWhere+" AND id>? ORDER BY id LIMIT 25",owner,anchor,cursor).all()).results;
+ const hasMore=children.length>24,visible=children.slice(0,24),relatives=[...(mainRow?[bodyRole(mainRow)]:[]),...visible.map(briefRole)],main=mainRow?bodyRole(mainRow):null;
+ const total=(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE "+childWhere,owner,anchor).first()).n+(mainRow?1:0);
  if(role.relatedAssetIdentity&&main)Object.assign(role,{projectNames:main.projectNames,projectIds:main.projectIds,projectName:main.projectName,projectId:main.projectId});
- return json({role,relatives});
+ return json({role,relatives,collectionPage:{anchor,total,nextCursor:hasMore?visible.at(-1).id:null,cursor}});
 }
 async function uploadState(request,env,owner){const b=await request.json();if(!Array.isArray(b.identities)||b.identities.length>1000||b.identities.some(id=>typeof id!=="string"))throw new HttpError(400,"素材标识无效");const rows=[];for(let i=0;i<b.identities.length;i+=80){const ids=b.identities.slice(i,i+80);rows.push(...(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND id IN ("+ids.map(()=>"?").join(",")+")",owner,...ids).all()).results)}return json({taskAssets:rows.map(bodyRole)})}
 async function manageProject(request,env,owner){
@@ -69,4 +77,10 @@ async function contentDuplicates(env,owner,bytes,mime){
  const legacy=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND size=? AND mime=? AND json_extract(body,'$.contentHash') IS NULL",owner,bytes.byteLength,mime).all()).results;
  for(const row of legacy){const object=await bucket(env).get(row.original_key);if(!object)continue;const value=encode64(new Uint8Array(await crypto.subtle.digest("SHA-256",await object.arrayBuffer())));await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.contentHash',?) WHERE id=? AND owner_id=? AND json_extract(body,'$.contentHash') IS NULL",value,row.id,owner).run()}
  const duplicate=await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND json_extract(body,'$.contentHash')=? AND COALESCE(json_extract(body,'$.cancelPending'),0)=0 ORDER BY created_at LIMIT 1",owner,contentHash).first();return {contentHash,duplicate:duplicate?bodyRole(duplicate):null};
+}
+
+async function draftPage(env,owner,cursor="",batch=""){
+ if(cursor.length>100||batch.length>200)throw new HttpError(400,"草稿分页参数无效");
+ const rows=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 AND id>?"+(batch?" AND json_extract(body,'$.uploadBatch')=?":"")+" ORDER BY id LIMIT 101",owner,cursor,...(batch?[batch]:[])).all()).results;
+ return {drafts:rows.slice(0,100).map(bodyRole),nextCursor:rows.length>100?rows[99].id:null};
 }

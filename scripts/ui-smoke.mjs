@@ -37,7 +37,7 @@ w.fetch=async(path,opts={})=>{
  const reply=result;return{ok:true,status:200,json:async()=>reply};
 };
 const downloads=[];w.URL.createObjectURL=()=>"blob:test";w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){downloads.push(this.download)};w.setInterval=()=>0;w.eval(scriptText("data.js")+";globalThis.seed=ATLAS");labels=w.seed.taxonomy.flatMap(d=>d.groups.flatMap(g=>g.values.map(name=>({dimension:d.id,name,groupName:g.name}))));
-w.ATLAS=w.seed;w.eval(scriptText("tag-groups.js"));w.eval(scriptText("app.js")+"\nglobalThis.taskChecks={analysisReview,editRole,renderDetails,similarDialog,compareSimilar,healthDialog,reconcileUploadItem,saveUploadTask,restoreUploadJobs,uploadJobs,state,continueUpload,openUploadTask,refresh,render,libraryURL,codexLocal};\n"+scriptText("storage.js"));
+w.ATLAS=w.seed;w.eval(scriptText("tag-groups.js"));w.eval(scriptText("app.js")+"\nglobalThis.taskChecks={deleteCollectionMain,loadDetail,hydrateUploadJob,analysisReview,editRole,renderDetails,similarDialog,compareSimilar,healthDialog,reconcileUploadItem,saveUploadTask,restoreUploadJobs,uploadJobs,state,continueUpload,openUploadTask,refresh,render,libraryURL,codexLocal};\n"+scriptText("storage.js"));
 const wait=()=>new Promise(resolve=>setTimeout(resolve,0)),click=s=>{assert(d.querySelector(s),"Missing selector "+s);d.querySelector(s).click()},change=s=>d.querySelector(s).dispatchEvent(new w.Event("change",{bubbles:true}));
 await wait();assert.equal(d.querySelector("#authScreen").hidden,false);click('[data-auth="register"]');const f=d.querySelector("#authForm");f.elements.email.value="user@example.com";f.elements.name.value="独立用户";f.elements.password.value="long-enough-password";f.elements.confirmPassword.value="long-enough-password";f.dispatchEvent(new w.Event("submit",{bubbles:true,cancelable:true}));await wait();await wait();
 assert.equal(d.querySelector("#app").hidden,false);assert.equal(d.querySelector("#authScreen").hidden,true);assert(d.querySelector("#modalContent").textContent.includes("恢复代码"));click("#savedRecovery");
@@ -182,5 +182,25 @@ let releaseOld,seen=0;const stableFetch=w.fetch;
 w.fetch=async(path,opts)=>{if(String(path).startsWith('/api/library?')){seen++;if(seen===1)return new Promise(resolve=>{releaseOld=async()=>resolve(await stableFetch(path,opts))})}return stableFetch(path,opts)};
 const oldRefresh=w.taskChecks.refresh(true);await w.taskChecks.refresh(true);const newestContent=d.querySelector('#content').firstElementChild;await releaseOld();await oldRefresh;assert.strictEqual(d.querySelector('#content').firstElementChild,newestContent);w.fetch=stableFetch;
 console.log('PASS: unchanged refresh retains DOM; stale requests cannot overwrite the newer view.');
+
+// A partial page must not turn a main-only deletion into a whole-collection deletion.
+const auditMain={...role,identity:'audit-main',revision:3},auditKeep={...role,id:'collection',identity:'audit-keep',relatedAssetIdentity:'audit-main',revision:4},auditDelete={...role,id:'collection',identity:'audit-delete',relatedAssetIdentity:'audit-main',revision:5};
+const auditTransport=w.fetch;let auditDeleteBody;
+w.fetch=async(path,opts={})=>{const body=opts.body?JSON.parse(opts.body):{};let data;
+ if(String(path).startsWith('/api/assets/detail?')){const cursor=new URL(String(path),'https://local.test').searchParams.get('cursor');data={role:auditMain,relatives:cursor?[auditMain,auditKeep]:[auditMain,auditDelete],collectionPage:{anchor:auditMain.identity,total:3,nextCursor:cursor?null:'second',cursor:cursor||''}}}
+ else if(path==='/api/assets/promote')data={role:{...auditKeep,id:role.id,relatedAssetIdentity:'',revision:5},relatives:[{...auditKeep,id:role.id,relatedAssetIdentity:'',revision:5},{...auditDelete,relatedAssetIdentity:auditKeep.identity,revision:9}],collectionPage:{anchor:auditKeep.identity,total:2,nextCursor:null,cursor:''}};
+ else if(path==='/api/upload-state'&&body.identities.includes(auditDelete.identity))data={taskAssets:[{...auditDelete,relatedAssetIdentity:auditKeep.identity,revision:9}]};
+ else if(path==='/api/assets/delete'){auditDeleteBody=body;data={ok:true,deleted:0,collectionDeleted:0}}
+ else return auditTransport(path,opts);return {ok:true,status:200,json:async()=>data};};
+w.taskChecks.state.serverPagination=true;
+await w.taskChecks.deleteCollectionMain(auditMain,[auditMain,auditDelete],null,[auditMain,auditDelete]);assert(d.querySelector('#replacementMain'));assert.equal(d.querySelector('#replacementMain').value,auditKeep.identity);
+click('#confirmMainSwitch');await wait();await wait();assert.equal(auditDeleteBody.items[0].revision,9);assert(d.querySelector('#detailError').textContent.includes('已删除 0 张'));assert(d.querySelector('#detailError').textContent.includes('重新选择'));
+// Restore a split batch completely before exposing save/analyze controls.
+const draftA={...auditDelete,identity:'draft-a',uploadDraft:true,uploadBatch:'hydrate-test'},draftB={...draftA,identity:'draft-b'};
+w.taskChecks.restoreUploadJobs({drafts:[draftA],partial:true});const restored=w.taskChecks.uploadJobs.get('hydrate-test');let draftRequests=0;
+w.fetch=async(path,opts)=>{if(String(path).startsWith('/api/drafts?')){draftRequests++;return {ok:true,status:200,json:async()=>draftRequests===1?{drafts:[draftA],nextCursor:'draft-a'}:{drafts:[draftB],nextCursor:null}}}return auditTransport(path,opts)};
+await w.taskChecks.hydrateUploadJob(restored);assert.equal(draftRequests,2);assert.equal(restored.restoredIncomplete,false);assert.equal(restored.items.length,2);
+w.fetch=auditTransport;click('#closeModal');
+console.log('PASS: deletion checks off-page replacement candidates, uses fresh child revisions and reports zero-delete conflicts.');
 click("#logoutButton");await wait();assert.equal(d.querySelector("#app").hidden,true);assert.equal(d.querySelector("#content").innerHTML,"");
 dom.window.close();console.log("PASS: restored atlas layout, restored sidebar navigation, no all prefixes, Enter/add/save automatic child tags, finer thematic suggestions, actual UI scripts, independent signup, recovery reminder, twelve filters, ZIP batch-download button, updated copy, age/era combinations, metadata/aspect ratio, editable prompt, dynamic clothing groups, folder picker, naming modes, custom projects, secret cleanup, bulk selection/delete, independent account UI, logout clearing.");

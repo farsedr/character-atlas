@@ -15,7 +15,7 @@ let main=await upload(),second=await upload('第二张'),child=await upload('集
 const route=r=>'/api/assets/'+r.id+'?v='+r.identity,ref=r=>({identity:r.identity,revision:r.revision});
 assert.equal(child.name,'集合');assert.notEqual(main.name,child.name);
 child=(await ok(route(child),{...child,name:'独立子图',analysisLocks:['name']},'PATCH')).role;assert.equal((await detail(child)).name,'独立子图');
-main=(await ok(route(main),{...main,name:'主图改名'},'PATCH')).role;child=await detail(child);assert.equal(child.name,'独立子图');assert.deepEqual(child.projectNames,main.projectNames);
+const childRevision=child.revision,childImageUrl=child.imageUrl;main=(await ok(route(main),{...main,name:'主图改名'},'PATCH')).role;child=await detail(child);assert.equal(child.revision,childRevision);assert.equal(child.imageUrl,childImageUrl);assert.equal(child.name,'独立子图');assert.deepEqual(child.projectNames,main.projectNames);
 const vocab=JSON.parse(fs.readFileSync('skills/image-analysis-taxonomy/taxonomy.json','utf8'));
 const result={taxonomy_version:'1.0.0',shortName:'月下倩影',imagePrompt:'人物位于月光下',summary:'独立分析的图片',collectionNames:['其他分类'],dimensions:Object.fromEntries(vocab.dimensions.map(d=>[d.id,{primary:'unknown',secondary:[],confidence:0,evidence:['证据不足'],uncertain:true}])),analysis_quality:{confidence_overall:.7,visible_evidence:[],uncertain_points:[],conflicting_tags:[],missing_dimensions:[],proposed_tags:[]}};
 const analyze=async r=>(await ok('/api/assets/'+r.id+'/analysis-result?v='+r.identity,{...ref(r),result,model:'gpt-6-luna',reasoning:'low'})).role;
