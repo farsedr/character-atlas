@@ -32,4 +32,14 @@ sql.prepare("UPDATE atlas_assets SET deleted_at='2026-10-21' WHERE id LIKE 'page
 let recycled=new Set();for(let page=1;page<=7;page++){const r=await ok('/api/library?view=recycle&extras=0&size=20&page='+page);assert.equal(r.pagination.total,131);assert(r.recycle.length<=20);for(const row of r.recycle){assert(!recycled.has(row.identity));recycled.add(row.identity)}}assert.equal(recycled.size,131);
 const last=await ok('/api/library?view=recycle&extras=0&size=20&page=999');assert.equal(last.pagination.page,7);
 assert.equal((await ok('/api/library?view=recycle',undefined,undefined,otherCookie)).recycle.length,0);
+
+// Child synchronization failures must roll back the main edit too.
+main=await detail(main);const previousMain=JSON.stringify(main.projectNames),previousChild=JSON.stringify((await detail(child)).projectNames);
+sql.exec("CREATE TEMP TRIGGER reject_child_sync BEFORE UPDATE ON atlas_assets WHEN OLD.id='"+child.identity+"' BEGIN SELECT RAISE(ABORT,'injected sync failure'); END;");
+const rejected=await call(route(main),{...main,projectNames:['事务回滚测试']},'PATCH');assert.equal(rejected.status,409);
+assert.equal(JSON.stringify((await detail(main)).projectNames),previousMain);assert.equal(JSON.stringify((await detail(child)).projectNames),previousChild);assert.equal((await detail(main)).revision,main.revision);
+sql.exec('DROP TRIGGER reject_child_sync');main=(await ok(route(main),{...main,projectNames:['事务回滚测试']},'PATCH')).role;assert.deepEqual((await detail(child)).projectNames,main.projectNames);
+// A collection larger than the identity-array limit saves atomically by batch ID.
+const batch='large-batch-1001';for(let i=0;i<1001;i++)sql.prepare('INSERT INTO atlas_assets(id,body,original_key,preview_key,mime,filename,size,revision,created_at,owner_id,display_number) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)').run('large-'+i,JSON.stringify({...body,relatedAssetIdentity:'',uploadDraft:true,uploadMode:'collection',uploadBatch:batch}),template.original_key,template.preview_key,template.mime,template.filename,template.size,1,template.created_at,template.owner_id);
+const large=await ok('/api/upload-batches',{batch,action:'save',mode:'collection',mainIdentity:'large-0'});assert.equal(large.roles.length,1001);assert.equal(large.roles.filter(r=>!r.relatedAssetIdentity).length,1);assert(large.roles.every(r=>!r.uploadDraft));
 sql.close();console.log('PASS: parent metadata preserves child analysis revisions/cache; group inheritance; bounded complete collection/draft/recycle pagination and owner isolation.');
