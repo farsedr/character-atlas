@@ -121,7 +121,7 @@ async function refresh(silent=false){
  libraryAbort?.abort();const controller=libraryAbort=new AbortController();loadingLibraryURL=path;
  try{
  const extras=!silent||Date.now()-libraryExtrasUpdated>60000,r=await api(path+(extras?"":"&extras=0"),{signal:controller.signal});if(request!==libraryRequest||state.user?.id!==owner)return;
- const taskIds=[...new Set(ownedUploadJobs().flatMap(j=>j.items.map(i=>i.role?.identity).filter(Boolean)))];if(taskIds.length){r.taskAssets=[];for(let offset=0;offset<taskIds.length;offset+=100){const chunk=await api("/api/upload-state",{method:"POST",body:JSON.stringify({identities:taskIds.slice(offset,offset+100)}),signal:controller.signal});r.taskAssets.push(...chunk.taskAssets)}}if(request!==libraryRequest||state.user?.id!==owner)return;
+ const taskIds=[...new Set(ownedUploadJobs().filter(j=>!j.saved).flatMap(j=>j.items.filter(i=>!i.saved&&!i.cancelled).map(i=>i.role?.identity).filter(Boolean)))];if(taskIds.length){r.taskAssets=[];for(let offset=0;offset<taskIds.length;offset+=100){const chunk=await api("/api/upload-state",{method:"POST",body:JSON.stringify({identities:taskIds.slice(offset,offset+100)}),signal:controller.signal});r.taskAssets.push(...chunk.taskAssets)}}if(request!==libraryRequest||state.user?.id!==owner)return;
  if(extras&&mutation===libraryMutation)libraryExtrasUpdated=Date.now();
  if(r.draftCursor!==undefined)state.draftCursor=r.draftCursor;loadedLibraryURL=path;state.serverPagination=!!r.pagination;state.pagination=r.pagination;
  Object.assign(state,{roles:r.roles,collections:r.collections||[],drafts:r.drafts??state.drafts,labels:r.labels?r.labels.map(t=>({...t,groupName:tagGroup(ATLAS.taxonomy,t)})):state.labels,projects:r.projects??state.projects,recycle:r.recycle||[],analysisEnabled:r.analysisEnabled??state.analysisEnabled,modelConfig:r.modelConfig===undefined?state.modelConfig:r.modelConfig});restoreUploadJobs({...r,drafts:state.drafts});if(r.pagination)state.page=r.pagination.page;
@@ -312,7 +312,7 @@ function updateUploadActivity(job){job.active=!!((job.activeRuns||0)||(job.savin
 function ownedUploadJobs(){return [...uploadJobs.values()].filter(j=>j.owner===state.user?.id)}
 function restoreUploadJobs(library){
  const roles=library.drafts||[];
- for(const job of ownedUploadJobs())if(!job.active&&!library.partial){for(const item of job.items)reconcileUploadItem(item,library);job.saved=job.items.every(i=>i.saved||i.cancelled);if(job.saved)job.status="处理完成"}
+ for(const job of ownedUploadJobs())if(!job.active&&!library.partial){for(const item of job.items)if(!item.saved&&!item.cancelled)reconcileUploadItem(item,library);job.saved=job.items.every(i=>i.saved||i.cancelled);if(job.saved)job.status="处理完成"}
  for(const batch of new Set(roles.map(r=>r.uploadBatch).filter(Boolean))){
   const rows=roles.filter(r=>r.uploadBatch===batch),old=uploadJobs.get(batch);
   if(old?.active)continue;

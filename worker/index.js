@@ -334,6 +334,9 @@ async function handleApi(request,env,url,ctx){
  }
  if(url.pathname==="/api/drafts"&&request.method==="GET")return json(await draftPage(env,owner,url.searchParams.get("cursor")||"",url.searchParams.get("batch")||""));
  if(url.pathname==="/api/assets/detail"&&request.method==="GET")return assetDetail(env,owner,url.searchParams.get("identity"),url.searchParams.get("cursor")||"");
+ if(url.pathname==="/api/library/post-save"&&request.method==="GET")return json({pending:(await query(env,"SELECT json_extract(body,'$.postSavePending') batch,json_extract(body,'$.name') name FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.postSavePending'),'')<>'' LIMIT 100",owner).all()).results});
+ if(url.pathname==="/api/library/backup"&&request.method==="GET"){if(url.searchParams.get('pending'))return json({pending:(await query(env,"SELECT DISTINCT json_extract(body,'$.backupPending') batch FROM atlas_assets WHERE owner_id=? AND COALESCE(json_extract(body,'$.backupPending'),'')<>''",owner).all()).results});return exportLibraryBackup(env,owner);}
+ if(url.pathname==="/api/library/backup"&&request.method==="POST")return importLibraryBackup(request,env,owner);
  if(url.pathname==="/api/upload-state"&&request.method==="POST")return uploadState(request,env,owner);
  if(url.pathname==="/api/projects/manage"&&request.method==="POST")return manageProject(request,env,owner);
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);

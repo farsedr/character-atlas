@@ -33,7 +33,7 @@ async function pagedLibrary(env,owner,url){
  if(!sort)throw new HttpError(400,"排序方式无效");
  const rows=view==="library"||view==="all"?(await query(env,"SELECT "+(view==="all"?"*":briefAssetColumns)+" FROM atlas_assets WHERE "+clause+" ORDER BY "+sort+" LIMIT ? OFFSET ?",...args,size,(page-1)*size).all()).results:[];
  const draftResult=extras?await draftPage(env,owner):null;
- const recycleWhere="owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0";
+ const recycleWhere="COALESCE(json_extract(body,'$.backupPending'),'')='' AND owner_id=? AND deleted_at IS NOT NULL AND COALESCE(json_extract(body,'$.cancelPending'),0)=0";
  const recycleTotal=view==="recycle"||view==="all"?(await query(env,"SELECT COUNT(*) n FROM atlas_assets WHERE "+recycleWhere,owner).first()).n:0;
  const recyclePages=Math.max(1,Math.ceil(recycleTotal/size)),recyclePage=Math.min(requested,recyclePages);
  const recycle=view==="recycle"||view==="all"?(await query(env,"SELECT "+briefAssetColumns+" FROM atlas_assets WHERE "+recycleWhere+" ORDER BY created_at DESC,id LIMIT ? OFFSET ?",owner,size,(recyclePage-1)*size).all()).results:[];
@@ -81,6 +81,6 @@ async function contentDuplicates(env,owner,bytes,mime){
 
 async function draftPage(env,owner,cursor="",batch=""){
  if(cursor.length>100||batch.length>200)throw new HttpError(400,"草稿分页参数无效");
- const rows=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 AND id>?"+(batch?" AND json_extract(body,'$.uploadBatch')=?":"")+" ORDER BY id LIMIT 101",owner,cursor,...(batch?[batch]:[])).all()).results;
+ const rows=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND (deleted_at IS NULL OR json_extract(body,'$.cancelPending')=1) AND json_extract(body,'$.uploadDraft')=1 AND COALESCE(json_extract(body,'$.backupPending'),'')='' AND id>?"+(batch?" AND json_extract(body,'$.uploadBatch')=?":"")+" ORDER BY id LIMIT 101",owner,cursor,...(batch?[batch]:[])).all()).results;
  return {drafts:rows.slice(0,100).map(bodyRole),nextCursor:rows.length>100?rows[99].id:null};
 }

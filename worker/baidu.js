@@ -64,6 +64,10 @@ async function enqueueBaidu(env,owner,identity){
  const cfg=baiduSettings(env),date=new Date().toISOString(),taskId=crypto.randomUUID();
  await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (task_id,task_created_at,asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT "+(identity?"COALESCE(NULLIF(json_extract(body,'$.uploadBatch'),''),?)":"?")+",?,id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,\'$.uploadDraft\'),0)=0"+(identity?" AND id=?":""),taskId,date,c.id,cfg.folder,date,owner,...(identity?[identity]:[])).run();
 }
+async function enqueueBaiduBatch(env,owner,batch){
+ const c=await baiduConnection(env,owner),cfg=baiduSettings(env);if(!c||c.status!=="connected"||!cfg)return;
+ const date=new Date().toISOString();await query(env,"INSERT OR IGNORE INTO atlas_baidu_backups (task_id,task_created_at,asset_id,owner_id,connection_id,remote_path,status,updated_at) SELECT ?,?,id,owner_id,?,?||'/'||id||CASE mime WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.webp' END,'pending',? FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND json_extract(body,'$.uploadBatch')=?",batch,date,c.id,cfg.folder,date,owner,batch).run();
+}
 // One resumable stage per request. A lease prevents two devices uploading the same part.
 async function baiduStep(env,owner){
  const auth=await baiduAccess(env,owner),claim=crypto.randomUUID(),time=Date.now();

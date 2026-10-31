@@ -4,7 +4,7 @@ async function saveBatchCollection(env,owner,b,all,ctx){
  let main=savedMain;if(!main){if(typeof b.mainIdentity!=='string')throw new HttpError(400,'请先选择一张已上传成功的主图');main=active.find(r=>r.id===b.mainIdentity);if(!main&&active.length&&active.every(r=>JSON.parse(r.body).relatedAssetIdentity===b.mainIdentity))main=await ownedAsset(env,owner,b.mainIdentity);if(!main)throw new HttpError(400,'主图未上传成功或已取消，请重新选择')}
  let mainRole=JSON.parse(main.body);if(mainRole.relatedAssetIdentity){main=await ownedAsset(env,owner,mainRole.relatedAssetIdentity);mainRole=JSON.parse(main.body)}
  if(mainRole.relatedAssetIdentity||mainRole.cancelPending)throw new HttpError(409,'主图已变化，请刷新后重新选择');
- const drafts=active.filter(r=>JSON.parse(r.body).uploadDraft);if(!drafts.length)return json({saved:active.length,roles:active.map(bodyRole),main:bodyRole(main)});
+ const drafts=active.filter(r=>JSON.parse(r.body).uploadDraft);if(!drafts.length)return finishCollectionSave(env,owner,b,active,main,ctx);
  if(drafts.some(r=>JSON.parse(r.body).analysisStatus==='analyzing'&&Date.now()-(JSON.parse(r.body).analysisStarted||0)<90000))throw new HttpError(409,'仍有图片正在分析，请完成后再保存集合');
  if(drafts.some(r=>JSON.parse(r.body).uploadMode!=='collection'))throw new HttpError(400,'本批包含独立素材，不能直接组成集合');
  const groups=await memberships(env,owner,mainRole.projectNames||[mainRole.projectName||'未分组']);
@@ -19,9 +19,14 @@ async function saveBatchCollection(env,owner,b,all,ctx){
  statements.push(query(env,"SELECT CASE WHEN EXISTS(SELECT 1 FROM atlas_assets WHERE id=? AND owner_id=? AND display_number IS NOT NULL AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0 AND COALESCE(json_extract(body,'$.relatedAssetIdentity'),'')='') THEN 1 ELSE json('invalid') END",main.id,owner));
  try{await getDb(env).batch(statements)}catch{throw new HttpError(409,'图片状态或可用编号已变化，本次未保存，请刷新后重试')}
  const committed=(await query(env,"SELECT * FROM atlas_assets WHERE owner_id=? AND json_extract(body,'$.uploadBatch')=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.uploadDraft'),0)=0",owner,b.batch).all()).results;
+ return finishCollectionSave(env,owner,b,committed,main,ctx);
+}
+async function finishCollectionSave(env,owner,b,committed,main,ctx){
  const root=await query(env,'SELECT * FROM atlas_assets WHERE id=? AND owner_id=?',main.id,owner).first();let backupQueued=false,backupError='';
- for(const row of committed)await persistLabels(env,JSON.parse(row.body).tags||[],owner);
- try{const connection=await baiduConnection(env,owner);if(connection?.status==='connected'){for(const row of committed)await enqueueBaidu(env,owner,row.id);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError='集合已保存，网盘备份启动失败，请在云盘连接中重试'}
+ const tags=[...new Map(committed.flatMap(row=>JSON.parse(row.body).tags||[]).map(t=>[t.dimension+":"+normalize(t.name),t])).values()];
+ try{await persistLabels(env,tags,owner)}catch{backupError="集合已保存，标签登记待重试；请再次保存本批次"}
+ try{const connection=await baiduConnection(env,owner);if(connection?.status==='connected'){await enqueueBaiduBatch(env,owner,b.batch);backupQueued=true;ctx?.waitUntil?.(baiduBackground(env,owner))}}catch{backupError='集合已保存，网盘备份启动失败，请在云盘连接中重试'}
+ await query(env,"UPDATE atlas_assets SET body=json_set(body,'$.postSavePending',?) WHERE id=? AND owner_id=?",backupError?b.batch:'',main.id,owner).run();
  return json({saved:committed.length,roles:committed.map(bodyRole),main:bodyRole(root),backupQueued,backupError});
 }
 function fieldLocks(value){if(!Array.isArray(value)||value.some(f=>!ANALYSIS_FIELDS.includes(f)))throw new HttpError(400,'锁定字段无效');return [...new Set(value)]}
