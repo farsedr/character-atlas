@@ -1,5 +1,7 @@
 
 const MAX_FILE=20*1024*1024;
+// A record can carry 22.5 MiB of images (30 MiB in base64), plus its JSON metadata.
+const MAX_BACKUP_BODY=32*1024*1024;
 const dimensions=()=>SEED.taxonomy.map(d=>d.id);
 const normalize=s=>s.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g,"");
 const clean=s=>{if(typeof s!=="string")throw new HttpError(400,"名称必须为文本");s=s.normalize("NFKC").trim();if(!s||s.length>40||/[<>\x00-\x1f]/.test(s))throw new HttpError(400,"标签或项目名称为1至40个有效字符");return s};
@@ -146,8 +148,24 @@ async function saveRole(env,row,input,owner){
 }
 
 const protocolIds=["openai","responses","anthropic","gemini"];
-const encode64=bytes=>{let s="";for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s)};
-const decode64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+function encode64(bytes){
+ // Three-byte boundaries keep independently encoded pieces free of inner padding.
+ let result='';
+ for(let offset=0;offset<bytes.length;offset+=8190)result+=btoa(String.fromCharCode(...bytes.subarray(offset,offset+8190)));
+ return result;
+}
+function decode64(value){
+ const encoded=String(value).replace(/[\t\n\f\r ]/g,'');
+ const padding=encoded.endsWith('==')?2:encoded.endsWith('=')?1:0;
+ const bytes=new Uint8Array(Math.max(0,Math.floor((encoded.length-padding)*3/4)));
+ let written=0;
+ for(let offset=0;offset<encoded.length;offset+=65536){
+  const part=encoded.slice(offset,offset+65536),binary=atob(part);
+  if(offset+part.length<encoded.length&&part.endsWith('='))throw new Error('Invalid base64 padding');
+  for(let i=0;i<binary.length;i++)bytes[written++]=binary.charCodeAt(i);
+ }
+ return bytes;
+}
 async function configKey(env){if(!env.AI_CONFIG_KEY)throw new HttpError(503,"模型配置暂未启用，仍可手动标注");return crypto.subtle.importKey("raw",decode64(env.AI_CONFIG_KEY),"AES-GCM",false,["encrypt","decrypt"])}
 async function seal(env,key,owner){const iv=crypto.getRandomValues(new Uint8Array(12));const bytes=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode(owner)},await configKey(env),new TextEncoder().encode(key));return encode64(iv)+"."+encode64(new Uint8Array(bytes))}
 async function unseal(env,cipher,owner){const [iv,data]=cipher.split(".");return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:decode64(iv),additionalData:new TextEncoder().encode(owner)},await configKey(env),decode64(data)))}
@@ -302,12 +320,36 @@ async function saveAnalysis(env,row,owner,parsed,source,options={}){
   if(!saved.uploadDraft)await persistLabels(env,role.tags||[],owner);return json({role:bodyRole(updated),acceptedCount:locks.includes('tags')||options.fields&&!options.fields.includes('tags')?0:accepted.length});
 }
 
+async function readBackupBody(request){
+ const reader=request.body?.getReader();
+ if(!reader)throw new HttpError(400,'备份请求缺少数据');
+ const decoder=new TextDecoder();
+ let bytes=0,text='';
+ try{
+  while(true){
+   const {done,value}=await reader.read();
+   if(done)break;
+   bytes+=value.byteLength;
+   if(bytes>MAX_BACKUP_BODY){
+    await reader.cancel().catch(()=>{});
+    throw new HttpError(413,'备份请求过大');
+   }
+   text+=decoder.decode(value,{stream:true});
+  }
+  text+=decoder.decode();
+ }finally{reader.releaseLock()}
+ let data;
+ try{data=JSON.parse(text)}catch{throw new HttpError(400,'备份请求格式无效')}
+ if(!data||typeof data!=='object'||Array.isArray(data))throw new HttpError(400,'备份请求格式无效');
+ return data;
+}
+
 async function handleApi(request,env,url,ctx){
  const mutation=!["GET","HEAD"].includes(request.method);
  if(mutation){
   if(request.headers.get("origin")!==url.origin)throw new HttpError(403,"请求来源无效");
   if(request.headers.get("sec-fetch-site")==="cross-site")throw new HttpError(403,"跨站请求被拒绝");
-  const max=url.pathname==="/api/assets"?MAX_FILE+3*1024*1024:url.pathname==='/api/assets/repair-preview'?3*1024*1024:64000;if(Number(request.headers.get("content-length"))>max)throw new HttpError(413,"请求过大");
+  const max=url.pathname==="/api/assets"?MAX_FILE+3*1024*1024:url.pathname==='/api/assets/repair-preview'?3*1024*1024:url.pathname==='/api/library/backup'&&request.method==='POST'?MAX_BACKUP_BODY:64000;if(Number(request.headers.get("content-length"))>max)throw new HttpError(413,"请求过大");
  }
  if(url.pathname==="/api/storage/baidu/callback"&&request.method==="GET")return baiduCallback(request,env,url);
  if(url.pathname.startsWith("/api/auth/"))return authApi(request,env,url);
@@ -335,8 +377,8 @@ async function handleApi(request,env,url,ctx){
  if(url.pathname==="/api/drafts"&&request.method==="GET")return json(await draftPage(env,owner,url.searchParams.get("cursor")||"",url.searchParams.get("batch")||""));
  if(url.pathname==="/api/assets/detail"&&request.method==="GET")return assetDetail(env,owner,url.searchParams.get("identity"),url.searchParams.get("cursor")||"");
  if(url.pathname==="/api/library/post-save"&&request.method==="GET")return json({pending:(await query(env,"SELECT json_extract(body,'$.postSavePending') batch,json_extract(body,'$.name') name FROM atlas_assets WHERE owner_id=? AND deleted_at IS NULL AND COALESCE(json_extract(body,'$.postSavePending'),'')<>'' LIMIT 100",owner).all()).results});
- if(url.pathname==="/api/library/backup"&&request.method==="GET"){if(url.searchParams.get('pending'))return json({pending:(await query(env,"SELECT DISTINCT json_extract(body,'$.backupPending') batch FROM atlas_assets WHERE owner_id=? AND COALESCE(json_extract(body,'$.backupPending'),'')<>''",owner).all()).results});return exportLibraryBackup(env,owner);}
- if(url.pathname==="/api/library/backup"&&request.method==="POST")return importLibraryBackup(request,env,owner);
+ if(url.pathname==="/api/library/backup"&&request.method==="GET"){if(url.searchParams.get('pending'))return pendingBackupImports(env,owner);return exportLibraryBackup(env,owner);}
+ if(url.pathname==="/api/library/backup"&&request.method==="POST")return importLibraryBackup(await readBackupBody(request),env,owner);
  if(url.pathname==="/api/upload-state"&&request.method==="POST")return uploadState(request,env,owner);
  if(url.pathname==="/api/projects/manage"&&request.method==="POST")return manageProject(request,env,owner);
  if(url.pathname==="/api/model-config")return configApi(request,env,owner);

@@ -1,6 +1,6 @@
 "use strict";
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const state={user:null,roles:[],collections:[],drafts:[],labels:[],projects:[],recycle:[],view:"library",filters:{},filtersExpanded:false,selected:new Set(),recycleSelected:new Set(),page:1,analysisEnabled:false,authMode:"login",files:[],editTags:[]};
+const state={user:null,roles:[],collections:[],drafts:[],labels:[],projects:[],recycle:[],view:"library",filters:{},filtersExpanded:false,selected:new Set(),recycleSelected:new Set(),page:1,analysisEnabled:false,authMode:"login",editTags:[]};
 let libraryExtrasUpdated=0,libraryMutation=0;
 async function api(path,options={}){
  const r=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...options.headers}});
@@ -316,7 +316,7 @@ function restoreUploadJobs(library){
  for(const batch of new Set(roles.map(r=>r.uploadBatch).filter(Boolean))){
   const rows=roles.filter(r=>r.uploadBatch===batch),old=uploadJobs.get(batch);
   if(old?.active)continue;
-  const items=rows.map(r=>({role:r,name:r.filename,file:null,status:r.analysisStatus==="done"?"分析完成":r.analysisStatus==="failed"?"分析失败":"等待分析",error:r.analysisError||""}));
+  const items=rows.map(r=>({role:r,name:r.name||r.filename,file:null,status:r.analysisStatus==="done"?"分析完成":r.analysisStatus==="failed"?"分析失败":"等待分析",error:r.analysisError||""}));
   if(old){for(const item of items){const known=old.items.find(i=>i.role?.identity===item.role.identity);if(known){Object.assign(known,item,{saved:false,cancelled:false})}else old.items.push(item)}if(!old.saved)old.status="等待保存"}else uploadJobs.set(batch,{restoredIncomplete:true,paused:true,collectionMode:rows.some(r=>r.uploadMode==="collection"),relatedAssetIdentity:rows[0].relatedAssetIdentity||"",id:batch,owner:state.user.id,createdAt:Date.parse(rows[0].createdAt),items,fields:{},tags:[],projects:[],auto:rows.some(r=>r.uploadAutoAnalyze||r.analysisStatus),choice:rows[0].uploadSettings?.choice||(codexLocal.connected?codexLocal.provider+":"+codexLocal.model:"api"),concurrency:rows[0].uploadSettings?.concurrency||3,status:rows.some(r=>r.uploadAutoAnalyze&&r.analysisStatus!=="done")?"已暂停，等待继续未完成分析":"等待保存",active:false,stopRequested:false,cancelRequested:false});
  }
  if($("#modal").dataset.kind==="background-tasks")paintBackgroundTasks();
@@ -334,7 +334,8 @@ function openUploadTask(job){
  if(job.owner!==state.user?.id)return;
  for(const item of job.items)item.editing=false;
  if(job.formNode){$("#modalContent .dialog-head h2").textContent="上传素材";$("#modalContent .dialog-body").replaceChildren(job.formNode);$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;$("#closeModal").onclick=()=>$("#modal").close();if(!$("#modal").open)$("#modal").showModal();paintUploadTask(job);return}
- modal("上传素材",'<div id="uploadTaskBody"></div>');$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;paintUploadTask(job);
+ const related=job.relatedAssetIdentity?(roleByIdentity(job.relatedAssetIdentity)||{identity:job.relatedAssetIdentity}):null;
+ uploadDialog(related,null,job);
 }
 function uploadWindow(job){const pages=Math.max(1,Math.ceil(job.items.length/24));job.page=Math.max(1,Math.min(job.page||1,pages));return {start:(job.page-1)*24,pages}}
 function uploadRows(job){const {start}=uploadWindow(job);return job.items.slice(start,start+24).map((i,index)=>{const n=start+index;return '<div class="task-item"><div class="task-material">'+(i.role?.imageUrl||i.previewUrl?'<img class="task-thumbnail" src="'+esc(i.role?.imageUrl||i.previewUrl)+'" alt="">':'')+'<strong>'+esc(i.role?.name||i.file?.name||i.name)+'</strong><p class="'+(i.error?'error':'form-note')+'">'+esc(i.error||i.status)+'</p></div>'+'<div class="task-item-actions">'+(i.role||i.file?'<button type="button" data-task-detail="'+n+'">查看</button>':'')+(i.duplicate?'<button type="button" data-duplicate-view="'+n+'">查看已有</button><button type="button" data-duplicate-upload="'+n+'">仍然上传</button>':'')+(i.role?.cancelPending?'<button type="button" data-task-cancel="'+n+'">重试取消</button>':i.saved||i.cancelled?'<span class="form-note">'+(i.saved?'已保存':'已取消')+'</span>':'<button type="button" data-task-retry="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested||i.status==="分析完成"||i.role&&!canAnalyze()?'disabled':'')+'>重试</button><button type="button" data-task-analyze="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested||!canAnalyze()?'disabled':'')+'>分析</button><button type="button" data-task-edit="'+n+'" '+(uploadItemBusy(i)||i.cancelRequested?'disabled':'')+'>编辑</button><button type="button" data-task-save="'+n+'" '+(i.saving||i.cancelRequested?'disabled':'')+'>保存</button><button type="button" data-task-cancel="'+n+'" '+(i.saving||i.cancelRequested?'disabled':'')+'>取消</button>')+'</div>'+'</div>'}).join("")}
@@ -482,26 +483,37 @@ async function showBackgroundTasks(){
 $("#tasksButton").onclick=showBackgroundTasks;
 let tasksPolling=false;
 setInterval(async()=>{if(tasksPolling||!state.user||document.hidden||$("#modal").dataset.kind!=="background-tasks"||!$("#modal").open)return;tasksPolling=true;try{await refresh(true);backgroundBaidu=await api("/api/storage/baidu");if($("#modal").dataset.kind==="background-tasks")paintBackgroundTasks()}catch{}finally{tasksPolling=false}},5000);
-function uploadDialog(relatedAsset=null,returnToDetail=null){
+function uploadDialog(relatedAsset=null,returnToDetail=null,restoredJob=null){
  if(!relatedAsset?.identity)relatedAsset=null;
  state.editTags=[];
- state.files=[];
- modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>可一次选择多张图片，也可继续添加图片或选择整个文件夹。每张图片独立准备和分析，默认同时分析3张。点击保存后才会进入素材库并同步百度网盘。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><p id="fileSummary" class="form-note"></p><div id="uploadTaskBody" data-running="false"><div id="fileList" class="file-list task-items"></div></div></div><div class="row"><label>分组方式<select name="groupingMode" id="groupingMode"><option value="ai" selected>模型分组</option><option value="manual">手动分组</option></select></label><div id="uploadProjectField" hidden><label>灵感集</label>'+projectPicker("uploadProjects")+'</div></div><div class="row"><label>命名方式<select name="namingMode" id="namingMode"><option value="original">原文件名</option><option value="custom">手动命名</option><option value="ai" selected>模型命名</option></select></label><div id="customNames" class="file-list upload-name-fields" hidden><label>文件名<input disabled placeholder="选择图片后填写"></label></div></div>'+projectList()+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" checked>保存前分析并添加子标签</label><p class="form-note">取消勾选后只准备素材，不调用模型。提示词、描述和标签在每张素材的编辑中填写。自动命名和自动分组需要连接本机 Codex / 本机 Gemini 或配置视觉模型。点击保存可直接按填写信息入库，不调用模型。开始处理会按勾选项执行模型分析。分析失败时临时原图保留，可逐张重试或保存默认信息；取消只清理未保存素材。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>开始处理</button></div></form>');
+ const restoredRole=restoredJob?.items.find(item=>item.role)?.role;
+ modal("上传素材",'<form id="uploadForm"><div class="dropzone"><p>可一次选择多张图片，也可继续添加图片或选择整个文件夹。每张图片独立准备和分析，默认同时分析3张。点击保存后才会进入素材库并同步百度网盘。</p><div class="upload-options"><button type="button" id="chooseFiles">选择图片</button><button type="button" id="chooseFolder">上传文件夹</button></div><input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><input id="folderInput" type="file" webkitdirectory directory multiple hidden><p class="muted small">PNG / JPEG / WebP · 单张不超过20MB · 文件夹中其他格式会跳过</p><p id="fileSummary" class="form-note"></p><div id="uploadTaskBody" data-running="false"><div id="fileList" class="file-list task-items"></div></div></div><div class="row"><label>分组方式<select name="groupingMode" id="groupingMode"><option value="ai" selected>模型分组</option><option value="manual">手动分组</option></select></label><div id="uploadProjectField" hidden><label>灵感集</label>'+projectPicker("uploadProjects",restoredRole?.projectNames)+'</div></div><div class="row"><label>命名方式<select name="namingMode" id="namingMode"><option value="original">原文件名</option><option value="custom">手动命名</option><option value="ai" selected>模型命名</option></select></label><div id="customNames" class="file-list upload-name-fields" hidden><label>文件名<input disabled placeholder="选择图片后填写"></label></div></div>'+projectList()+analysisModelSelect("uploadAnalysisModel")+'<label class="check"><input type="checkbox" name="autoAnalyze" id="autoAnalyze" checked>保存前分析并添加子标签</label><p class="form-note">取消勾选后只准备素材，不调用模型。提示词、描述和标签在每张素材的编辑中填写。自动命名和自动分组需要连接本机 Codex / 本机 Gemini 或配置视觉模型。点击保存可直接按填写信息入库，不调用模型。开始处理会按勾选项执行模型分析。分析失败时临时原图保留，可逐张重试或保存默认信息；取消只清理未保存素材。原始文件名始终保留。</p><p id="uploadError" class="error"></p><div id="uploadProgress" class="progress" hidden></div><div class="dialog-actions"><button id="startUpload" class="primary" disabled>开始处理</button></div></form>');
 if(codexLocal.connected&&codexLocal.maxConcurrent<5){const hint=document.createElement("p");hint.className="form-note";hint.innerHTML='当前连接包最高支持同时分析'+codexLocal.maxConcurrent+'张。<a href="/share/local-connector.zip">下载新版连接包</a>，关闭旧程序并启动新版、重新配对后可选择同时分析1–5张。';$("#uploadProgress").before(hint)}
 const concurrencyField=document.createElement("label");concurrencyField.innerHTML='分析并发<select id="analysisConcurrency" name="analysisConcurrency">'+[1,2,3,4,5].map(n=>'<option value="'+n+'">同时分析 '+n+' 张</option>').join('')+'</select><span class="form-note">默认3张；可选1–5张。失败立即显示原因，不会自动重试；限流时可降低并发后点击重试。旧连接包按实际支持数量执行，请更新连接包以使用5张。</span>';$("#uploadError").before(concurrencyField);$("#analysisConcurrency").value=localStorage.getItem("atlas-analysis-concurrency")||"3";
  const stop=document.createElement("button");stop.id="stopAnalysis";stop.type="button";stop.className="danger";stop.textContent="停止分析";stop.hidden=true;$("#startUpload").before(stop);
  const directSave=document.createElement("button");directSave.type="button";directSave.id="directSaveUpload";directSave.textContent="保存";directSave.disabled=true;$("#startUpload").after(directSave);
- const cancel=document.createElement("button");cancel.type="button";cancel.id="cancelUpload";cancel.textContent="取消";$("#startUpload").before(cancel);cancel.onclick=()=>{state.files=[];$("#modal").close()};
+ const cancel=document.createElement("button");cancel.type="button";cancel.id="cancelUpload";cancel.textContent="取消";$("#startUpload").before(cancel);
 
- const job={id:crypto.randomUUID(),owner:state.user.id,relatedAssetIdentity:relatedAsset?.relatedAssetIdentity||relatedAsset?.identity||"",createdAt:Date.now(),items:state.files,fields:{},tags:[],projects:[],auto:false,choice:$("#uploadAnalysisModel")?.value,concurrency:Number($("#analysisConcurrency").value)||3,status:"等待处理",active:false,saving:false,started:false,formNode:$("#uploadForm")};$("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;
+ const job=restoredJob||{id:crypto.randomUUID(),owner:state.user.id,relatedAssetIdentity:relatedAsset?.relatedAssetIdentity||relatedAsset?.identity||"",createdAt:Date.now(),items:[],fields:{},tags:[],projects:[],auto:false,choice:$("#uploadAnalysisModel")?.value,concurrency:Number($("#analysisConcurrency").value)||3,status:"等待处理",active:false,saving:false,started:false};
+ job.formNode=$("#uploadForm");
+ if(restoredJob){
+  job.started=true;
+  $("#autoAnalyze").checked=!!job.auto;
+  $("#analysisConcurrency").value=String(job.concurrency);
+  if($("#uploadAnalysisModel"))$("#uploadAnalysisModel").value=job.choice;
+  if(restoredRole?.namingMode)$("#namingMode").value=restoredRole.namingMode;
+  if(restoredRole?.groupingMode)$("#groupingMode").value=restoredRole.groupingMode;
+ }
+ $("#modal").dataset.kind="upload-task";$("#modal").dataset.taskId=job.id;
  const refreshButton=document.createElement("button");refreshButton.id="refreshUploadTask";refreshButton.type="button";refreshButton.textContent="刷新";$("#startUpload").before(refreshButton);const retryButton=document.createElement("button");retryButton.id="retryAnalysis";retryButton.type="button";retryButton.textContent="重试";retryButton.hidden=true;$("#startUpload").before(retryButton);
  const choose=(files)=>{
-  for(const input of $("#customNames").querySelectorAll("[data-custom-name]")){const entry=state.files[Number(input.dataset.customName)];if(entry&&!entry.edited)entry.name=input.value}
+  for(const input of job.formNode.querySelectorAll("[data-custom-name]")){const item=job.items[Number(input.dataset.customName)];if(item&&!item.edited)item.name=input.value}
   const supported=[...files].filter(f=>/\.(png|jpe?g|webp)$/i.test(f.name));
-  const fileKey=f=>[f.webkitRelativePath||f.name,f.size,f.lastModified].join("\u0000"),seen=new Set(state.files.filter(e=>e.file).map(e=>fileKey(e.file)));let duplicates=0;
-  for(const file of supported){const key=fileKey(file);if(seen.has(key)){duplicates++;continue}seen.add(key);state.files.push({file,previewUrl:globalThis.URL.createObjectURL?.(file),name:file.name.replace(/\.[^.]+$/,""),status:"等待处理",role:null,error:""})}
+  const fileKey=f=>[f.webkitRelativePath||f.name,f.size,f.lastModified].join("\u0000");
+  const seen=new Set(job.items.filter(i=>!i.cancelled&&i.fileKey).map(i=>i.fileKey));
+  for(const file of supported){const key=fileKey(file);if(seen.has(key))continue;seen.add(key);job.items.push({file,fileKey:key,previewUrl:globalThis.URL.createObjectURL?.(file),name:file.name.replace(/\.[^.]+$/,""),status:"等待处理",role:null,error:""})}
   if(supported.length&&job.items.some(i=>!i.saved&&!i.cancelled)){job.saved=false;job.status="等待处理"}
-  paintUploadTask(job);
+  taskChanged(job);
  };
  $("#chooseFiles").onclick=()=>$("#fileInput").click();$("#chooseFolder").onclick=()=>$("#folderInput").click();
  $("#fileInput").onchange=e=>{choose(e.target.files);e.target.value=""};$("#folderInput").onchange=e=>{choose(e.target.files);e.target.value=""};
@@ -509,6 +521,7 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
  $("#groupingMode").onchange=e=>{$("#uploadProjectField").hidden=e.target.value!=="manual"&&$("#autoAnalyze").checked;$("#autoAnalyze").disabled=false};
  $("#namingMode").onchange=e=>{$("#customNames").hidden=e.target.value!=="custom"&&$("#autoAnalyze").checked;$("#autoAnalyze").disabled=false};
  $("#namingMode").dispatchEvent(new Event("change"));
+ $("#groupingMode").dispatchEvent(new Event("change"));
  $("#autoAnalyze").onchange=()=>{$("#uploadProjectField").hidden=$("#groupingMode").value!=="manual"&&$("#autoAnalyze").checked;$("#customNames").hidden=$("#namingMode").value!=="custom"&&$("#autoAnalyze").checked};
  const beginUpload=(direct=false,onlyItem=null,retry=false,force=false)=>{
   if(job.active&&!onlyItem){if(direct)$("#modal").close();return}
@@ -526,8 +539,8 @@ const concurrencyField=document.createElement("label");concurrencyField.innerHTM
   $("#groupingMode").closest(".row").hidden=true;
   $("#autoAnalyze").closest("label").nextElementSibling.textContent="灵感集跟随主素材；每张素材独立命名，风格、标签、描述和提示词独立通过模型分析；也可直接保存到集合。";
   $("#uploadForm .dropzone p").textContent="可上传多张图片，保存后仅显示在主素材的集合中，不进入灵感总览。每张素材独立命名，其余信息独立分析。";
-  const note=document.createElement("p");note.className="form-note";note.textContent="主素材："+relatedAsset.name;$("#uploadForm").prepend(note);
-  const back=document.createElement("button");back.type="button";back.textContent="返回素材详情";back.onclick=async()=>{try{await refresh(true);returnToDetail()}catch(e){$("#uploadError").textContent=e.message}};$("#startUpload").before(back);
+  const note=document.createElement("p");note.className="form-note";note.textContent=relatedAsset.name?"主素材："+relatedAsset.name:"追加到当前素材的集合";$("#uploadForm").prepend(note);
+  if(returnToDetail){const back=document.createElement("button");back.type="button";back.textContent="返回素材详情";back.onclick=async()=>{try{await refresh(true);returnToDetail()}catch(e){$("#uploadError").textContent=e.message}};$("#startUpload").before(back)}
  }
  wireUploadCollection(job,!!relatedAsset);job.begin=beginUpload;$("#uploadForm").onsubmit=e=>{e.preventDefault();beginUpload(false)};$("#directSaveUpload").onclick=()=>beginUpload(true);paintUploadTask(job);
 }

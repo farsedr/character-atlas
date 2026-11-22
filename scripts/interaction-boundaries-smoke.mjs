@@ -40,6 +40,69 @@ const downloads=[];w.URL.createObjectURL=()=>"blob:test";w.URL.revokeObjectURL=(
 w.ATLAS=w.seed;w.eval(scriptText("tag-groups.js"));w.eval(scriptText("app.js")+"\nglobalThis.taskChecks={paintCustomNames,details,modal,uploadRows,paintUploadTask,paintUploadCollection,syncUploadRoles,deleteCollectionMain,loadDetail,hydrateUploadJob,analysisReview,editRole,renderDetails,similarDialog,compareSimilar,healthDialog,reconcileUploadItem,saveUploadTask,restoreUploadJobs,uploadJobs,state,continueUpload,openUploadTask,refresh,render,libraryURL,codexLocal};\n"+scriptText("storage.js"));
 
 await new Promise(r=>setTimeout(r,0));const t=w.taskChecks;t.state.user={id:'owner'};t.state.serverPagination=true;
+// Reopen two actual upload forms and simulate restoring a task from the server.
+w.createImageBitmap=async()=>({width:100,height:100,close(){}});
+w.HTMLCanvasElement.prototype.getContext=()=>({drawImage(){},fillRect(){}});
+w.HTMLCanvasElement.prototype.toBlob=function(done){done(new w.Blob(["jpeg"],{type:"image/jpeg"}))};
+const pickFiles=(files,selector="#fileInput")=>{
+ const input=d.querySelector(selector);
+ Object.defineProperty(input,"files",{configurable:true,value:files});
+ input.dispatchEvent(new w.Event("change"));
+};
+const imageFile=name=>new w.File([name],name+".png",{type:"image/png",lastModified:1});
+const waitFor=async predicate=>{
+ for(let i=0;i<100;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,5))}
+ assert.fail("upload interaction did not finish");
+};
+async function startBatch(name){
+ d.querySelector("#uploadButton").click();
+ const id=d.querySelector("#modal").dataset.taskId;
+ d.querySelector("#autoAnalyze").checked=false;
+ pickFiles([imageFile(name)]);
+ d.querySelector("#uploadForm").dispatchEvent(new w.Event("submit",{cancelable:true}));
+ await waitFor(()=>t.uploadJobs.get(id)?.items[0]?.role&&!t.uploadJobs.get(id).active);
+ d.querySelector("#closeModal").click();
+ return t.uploadJobs.get(id);
+}
+async function reopenBatch(batch){
+ await d.querySelector("#tasksButton").onclick();
+ d.querySelector('[data-open-upload="'+batch.id+'"]').click();
+ await waitFor(()=>d.querySelector("#modal").dataset.taskId===batch.id&&d.querySelector("#fileInput"));
+}
+const firstBatch=await startBatch("first"),secondBatch=await startBatch("second");
+await reopenBatch(firstBatch);
+const sharedFile=imageFile("shared");
+pickFiles([sharedFile,sharedFile]);
+const customName=d.querySelector('[data-custom-name="1"]');
+customName.value="my first upload";customName.dispatchEvent(new w.Event("input"));
+pickFiles([imageFile("extra")],"#folderInput");
+assert.deepEqual(Array.from(firstBatch.items,i=>i.name),["first","my first upload","extra"]);
+assert.deepEqual(Array.from(secondBatch.items,i=>i.name),["second"]);
+d.querySelector('[data-task-cancel="2"]').click();
+await waitFor(()=>firstBatch.items[2].cancelled);
+await reopenBatch(secondBatch);
+pickFiles([sharedFile]);
+assert.deepEqual(Array.from(secondBatch.items,i=>i.name),["second","shared"]);
+await reopenBatch(firstBatch);
+assert.equal(d.querySelector('[data-custom-name="1"]').value,"my first upload");
+assert.equal(firstBatch.items.length,3);
+d.querySelector("#uploadForm").dispatchEvent(new w.Event("submit",{cancelable:true}));
+await waitFor(()=>firstBatch.items[1].role&&!firstBatch.active);
+assert.equal(firstBatch.items[1].role.uploadBatch,firstBatch.id);
+assert.equal(firstBatch.items[1].role.name,"my first upload");
+assert.equal(secondBatch.items[1].role,null);
+t.uploadJobs.delete(firstBatch.id);
+t.restoreUploadJobs({drafts:drafts.filter(r=>r.uploadBatch===firstBatch.id),partial:true});
+const restoredBatch=t.uploadJobs.get(firstBatch.id);
+await reopenBatch(restoredBatch);
+pickFiles([imageFile("after-reload")]);
+d.querySelector("#uploadForm").dispatchEvent(new w.Event("submit",{cancelable:true}));
+await waitFor(()=>restoredBatch.items.at(-1).role&&!restoredBatch.active);
+assert.equal(restoredBatch.items.at(-1).role.uploadBatch,firstBatch.id);
+assert.equal(secondBatch.items.length,2);
+d.querySelector("#closeModal").click();
+t.uploadJobs.clear();drafts=[];t.state.drafts=[];t.state.serverPagination=true;
+
 let resolveOld;w.fetch=async path=>{const id=new URL(path,'https://local.test').searchParams.get('identity');if(id==='old')await new Promise(r=>resolveOld=r);return {ok:true,json:async()=>({role:{...role,identity:id},relatives:[],collectionPage:{anchor:id,total:1}})}};
 const old=t.loadDetail({...role,identity:'old'}).catch(e=>e.name);await t.loadDetail({...role,identity:'new'});resolveOld();assert.equal(await old,'AbortError');assert.equal(t.state.collectionPage.anchor,'new');
 t.modal('existing','test');t.details({...role,identity:'old'});d.querySelector('#closeModal').click();resolveOld();await new Promise(r=>setTimeout(r,0));assert.equal(d.querySelector('#modal').open,false);

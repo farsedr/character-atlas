@@ -19,3 +19,85 @@ try{
  w.backupChecks.owner('owner');steps=[{worked:false}];await w.resumeBaiduBackup();assert(statusCalls>0);
  console.log('PASS: failed backup isolation, leased-job wakeup, network backoff, pause and account-bound recovery.');
 }finally{dom.window.close()}
+
+const libraryUiSource = fs.readFileSync('public/pro-tools.js', 'utf8');
+const dialogStart = libraryUiSource.indexOf('async function clearBackupImport(');
+const dialogEnd = libraryUiSource.indexOf('const backupMenuButton=', dialogStart);
+assert.ok(dialogStart >= 0 && dialogEnd > dialogStart);
+const libraryUi = new JSDOM('<main></main>', {url:'https://local.test', runScripts:'outside-only'});
+const ui = libraryUi.window;
+try {
+ const select = selector => ui.document.querySelector(selector);
+ ui.$ = select;
+ ui.state = {user:{id:'owner'}};
+ ui.modal = (_, content) => {select('main').innerHTML='<button id="closeModal"></button>'+content};
+ ui.api = async () => ({pending:[]});
+ ui.TextDecoder = TextDecoder;
+ let refreshFails = false, refreshes = 0;
+ ui.refresh = async () => {refreshes++;if(refreshFails)throw new Error('列表离线')};
+ let requests = [], mode = 'lost-response', cancels = 0;
+ ui.post = async (route, action) => {
+  assert.equal(route, '/api/library/backup');
+  requests.push(action);
+  if(action.action === 'record')return {};
+  if(action.action === 'finish'){
+   if(mode === 'lost-response')throw new Error('提交回执丢失');
+   return {imported:action.count};
+  }
+  if(action.action === 'status')return {state:'completed',imported:2};
+  if(action.action === 'cancel')return {more:++cancels===1,state:'cancelled'};
+  assert.fail('Unexpected backup action '+action.action);
+ };
+ ui.eval(libraryUiSource.slice(dialogStart,dialogEnd)+'\nwindow.openBackupForTest=libraryBackupDialog;');
+ await ui.openBackupForTest();
+ const input = select('#importLibraryBackup'), close = select('#closeModal');
+ const progress = select('#backupProgress'), error = select('#backupError');
+ const header = {format:'atlas-library-backup',version:1};
+ const prefix = [header,{data:{identity:'a'}},{data:{identity:'b'}}].map(JSON.stringify).join('\n')+'\n';
+ const complete = new Blob([prefix,JSON.stringify({end:true,count:2})]);
+ let selected, failRead = false;
+ const file = {name:'test.atlas',stream(){
+  if(!failRead)return complete.stream();
+  let sent = false;
+  return new ReadableStream({pull(controller){
+   if(sent)controller.error(new Error('读取文件中断'));
+   else {sent=true;controller.enqueue(new TextEncoder().encode(prefix))}
+  }});
+ }};
+ // Like a native file input, selecting the same file fires change only after the value was cleared.
+ Object.defineProperties(input, {
+  files:{get:()=>selected?[selected]:[]},
+  value:{get:()=>selected?.name||'',set(value){assert.equal(value,'');selected=undefined}}
+ });
+ async function chooseFile(){
+  assert.ok(!input.disabled && !close.disabled);
+  assert.notEqual(selected,file,'the same file must be selectable again');
+  selected=file;
+  await input.onchange();
+  assert.equal(input.value,'');
+  assert.ok(!input.disabled && !close.disabled);
+ }
+ await chooseFile();
+ assert.deepEqual(requests.map(item=>item.action),['record','record','finish','status']);
+ assert.equal(progress.textContent,'已导入 2 张');
+ assert.equal(error.textContent,'');
+ assert.equal(refreshes,1);
+
+ mode='direct';failRead=true;requests=[];
+ await chooseFile();
+ assert.deepEqual(requests.map(item=>item.action),['record','record','cancel','cancel']);
+ assert.ok(requests.slice(2).every(item=>item.paged && item.batch===requests[0].batch));
+ assert.equal(progress.textContent,'');
+ assert.equal(error.textContent,'读取文件中断');
+ assert.equal(refreshes,1);
+ const failedBatch=requests[0].batch;
+
+ failRead=false;refreshFails=true;requests=[];
+ await chooseFile();
+ assert.notEqual(requests[0].batch,failedBatch);
+ assert.deepEqual(requests.map(item=>item.action),['record','record','finish']);
+ assert.equal(refreshes,2);
+ assert.equal(progress.textContent,'已导入 2 张');
+ assert.match(error.textContent,/素材已保存，列表刷新失败.*列表离线/);
+ console.log('PASS: library backup commit receipt recovery, paged cleanup, same-file retry and refresh failure.');
+} finally {libraryUi.window.close()}

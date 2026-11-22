@@ -77,13 +77,82 @@ async function healthDialog(){
  try{const result=await api('/api/library/health');if(current())summary(result.summary)}catch(e){if(current())$('#healthError').textContent=e.message}
 }
 
+async function clearBackupImport(batch, onlyInactive=false) {
+ let result;
+ do { result=await post('/api/library/backup',{action:'cancel',batch,onlyInactive,paged:true}); }
+ while(result.more);
+ return result;
+}
+
 async function libraryBackupDialog(){
  modal('素材库备份','<p>完整备份包含原图、预览、名称、标签、提示词和集合关系。导入追加为独立副本，主页编号重新分配。请保存好备份文件。</p><button id="exportLibraryBackup">下载完整备份</button><label>导入备份<input type="file" id="importLibraryBackup" accept=".atlas"></label><p id="backupProgress" role="status"></p><p id="backupError" class="error"></p>');
- const outstanding=await api('/api/library/backup?pending=1');if(outstanding.pending?.length){const clear=document.createElement('button');clear.textContent='清理上次未完成的导入';clear.onclick=async()=>{clear.disabled=true;try{for(const row of outstanding.pending)await post('/api/library/backup',{action:'cancel',batch:row.batch});clear.remove();toast('暂存已清理')}catch(e){toast(e.message);clear.disabled=false}};$('#backupProgress').before(clear)}
+ const input=$('#importLibraryBackup'),progress=$('#backupProgress'),errorBox=$('#backupError'),close=$('#closeModal');
  $('#exportLibraryBackup').onclick=()=>{const a=document.createElement('a');a.href='/api/library/backup';a.download='atlas-library.atlas';a.click()};
- $('#importLibraryBackup').onchange=async e=>{const file=e.target.files[0];if(!file)return;const batch=crypto.randomUUID(),owner=state.user?.id;e.target.disabled=true;$('#closeModal').disabled=true;let count=0,ended=false,header=false,pending='',metadata;const decoder=new TextDecoder();
- async function record(line){if(!line.trim())return;const item=JSON.parse(line);if(ended)throw new Error('备份结束后仍有数据');if(!header){if(item.format!=='atlas-library-backup'||item.version!==1)throw new Error('不支持的备份格式');header=true;metadata={projects:item.projects||[],labels:item.labels||[]};return}if(item.end){if(item.count!==count)throw new Error('备份数量不完整');ended=true;return}if(state.user?.id!==owner)throw new Error('账号已变化');await post('/api/library/backup',{action:'record',batch,record:item});count++;$('#backupProgress').textContent='已校验并暂存 '+count+' 张';}
- try{const reader=file.stream().getReader();while(true){const {value,done}=await reader.read();pending+=decoder.decode(value,{stream:!done});let index;while((index=pending.indexOf('\n'))>=0){await record(pending.slice(0,index));pending=pending.slice(index+1)}if(pending.length>60000000)throw new Error('备份记录过大');if(done)break}if(pending.trim())await record(pending);if(!header||!ended)throw new Error('备份文件不完整');const result=await post('/api/library/backup',{action:'finish',batch,count,metadata});$('#backupProgress').textContent='已导入 '+result.imported+' 张';await refresh(true)}catch(error){try{await post('/api/library/backup',{action:'cancel',batch})}catch{}$('#backupError').textContent=error.message}finally{if($('#closeModal'))$('#closeModal').disabled=false;e.target.disabled=false}};
+ api('/api/library/backup?pending=1').then(({pending})=>{
+  if(!pending?.length || !input.isConnected) return;
+  const clear=document.createElement('button');
+  clear.textContent='清理已中断的导入';
+  clear.onclick=async()=>{
+   clear.disabled=true;
+   try { for(const row of pending) await clearBackupImport(row.batch,true); clear.remove(); toast('已清理中断的导入'); }
+   catch(error) { errorBox.textContent=error.message; clear.disabled=false; }
+  };
+  progress.before(clear);
+ }).catch(error=>{errorBox.textContent=error.message});
+ input.onchange=async()=>{
+  const file=input.files[0]; if(!file) return;
+  const batch=crypto.randomUUID(),owner=state.user?.id,decoder=new TextDecoder(),reader=file.stream().getReader();
+  input.disabled=true; close.disabled=true; errorBox.textContent='';
+  let count=0,ended=false,metadata=null,pending='',submitting=false;
+  async function record(line){
+   if(!line.trim())return;
+   const item=JSON.parse(line);
+   if(ended)throw new Error('备份结束后仍有数据');
+   if(!metadata){
+    if(item.format!=='atlas-library-backup'||item.version!==1)throw new Error('不支持的备份格式');
+    metadata={projects:item.projects||[],labels:item.labels||[]};return;
+   }
+   if(item.end){if(item.count!==count)throw new Error('备份数量不完整');ended=true;return}
+   if(state.user?.id!==owner)throw new Error('账号已变化');
+   await post('/api/library/backup',{action:'record',batch,record:item});
+   count++;progress.textContent='已校验并暂存 '+count+' 张';
+  }
+  function showCompleted(total){
+   progress.textContent='已导入 '+total+' 张';
+   refresh(true).catch(error=>{errorBox.textContent='素材已保存，列表刷新失败：'+error.message});
+  }
+  try{
+   while(true){
+    const {value,done}=await reader.read();pending+=decoder.decode(value,{stream:!done});
+    let index;
+    while((index=pending.indexOf('\n'))>=0){await record(pending.slice(0,index));pending=pending.slice(index+1)}
+    if(pending.length>60000000)throw new Error('备份记录过大');
+    if(done)break;
+   }
+   if(pending.trim())await record(pending);
+   if(!metadata||!ended)throw new Error('备份文件不完整');
+   if(state.user?.id!==owner)throw new Error('账号已变化');
+   submitting=true;
+   const result=await post('/api/library/backup',{action:'finish',batch,count,metadata});
+   showCompleted(result.imported);
+  }catch(error){
+   if(state.user?.id!==owner){errorBox.textContent='账号已变化';return}
+   try{
+    if(submitting){
+     const status=await post('/api/library/backup',{action:'status',batch});
+     if(status.state==='completed'){showCompleted(status.imported);return}
+    }
+    const cleanup=await clearBackupImport(batch);
+    if(cleanup.state==='completed'){showCompleted(cleanup.imported);return}
+    progress.textContent='';errorBox.textContent=error.message;
+   }catch{
+    errorBox.textContent=error.message+'。请恢复连接后刷新并核对素材库。';
+   }
+  }finally{
+   await reader.cancel().catch(()=>{});reader.releaseLock();
+   input.disabled=false;input.value='';close.disabled=false;
+  }
+ };
 }
 const backupMenuButton=document.createElement('button');backupMenuButton.type='button';backupMenuButton.className='text-button';backupMenuButton.innerHTML='<span class="sidebar-icon" aria-hidden="true">⇩</span> <span class="sidebar-label">素材库备份</span>';backupMenuButton.onclick=libraryBackupDialog;$('#healthButton')?.after(backupMenuButton);
 
